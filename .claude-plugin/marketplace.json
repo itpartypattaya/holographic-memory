@@ -1,6 +1,9 @@
 {
   "name": "holographic-memory",
-  "owner": {"name": "itpartypattaya"},
+  "description": "Holographic memory for Claude Code: local long-term facts recalled before each turn, with memory tools over MCP.",
+  "owner": {
+    "name": "itpartypattaya"
+  },
   "plugins": [
     {
       "name": "holographic-memory",
