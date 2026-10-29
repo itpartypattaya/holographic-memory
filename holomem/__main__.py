@@ -38,6 +38,12 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("status", help="settings, database, facts")
     args = parser.parse_args(argv)
 
+    if args.command not in ("hook", "mcp"):  # those two write bytes; the rest print notes in any language
+        for stream in (sys.stdout, sys.stderr):
+            try:
+                stream.reconfigure(encoding="utf-8", errors="replace")
+            except (AttributeError, ValueError):  # not a text stream that can be reconfigured: leave it
+                pass
     if args.command == "hook":
         from .hooks import main as hook_main
 
