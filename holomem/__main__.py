@@ -28,6 +28,9 @@ def main(argv: list[str] | None = None) -> int:
     inst.add_argument("--project", default=".", help="the project directory for --scope project")
     inst.add_argument("--dry-run", action="store_true", help="show the change, write nothing")
     inst.add_argument("--uninstall", action="store_true", help="remove what install added")
+    inst.add_argument("--claude-cli", help="the claude executable, when it is not on PATH")
+    inst.add_argument("--approval", choices=["auto", "writes", "prompt"], default="auto",
+                      help="Codex: when its memory tools ask for approval (default: never)")
     imp = sub.add_parser("import", help="copy a client's own memory files into the store, as facts")
     imp.add_argument("source", choices=["claude-memory", "codex-memories"])
     imp.add_argument("--dry-run", action="store_true")
