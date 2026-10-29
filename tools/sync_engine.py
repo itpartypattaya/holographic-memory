@@ -8,10 +8,15 @@ The engine is every top-level module of the plugin but its provider (``__init__.
 ``dictionaries/`` it reads, and the licenses that cover them. Nothing in the copy is edited: the three Hermes helpers
 the store calls are supplied from outside (``holomem.compat``), so a fix to the engine goes to the plugin and arrives
 here with the next tag. ``holomem/engine/__init__.py`` is the one file written here; it is not part of the manifest.
+
+One piece the bridge needs lives in the provider: the auto-extraction patterns (``_EXTRACT_CATEGORIES``). That one
+assignment is copied out of the tag's ``__init__.py``, its source text exactly, into ``extract_patterns.py``, which the
+manifest hashes like the rest; the rest of the provider stays out.
 """
 from __future__ import annotations
 
 import argparse
+import ast
 import hashlib
 import io
 import json
@@ -26,6 +31,14 @@ ENGINE = ROOT / "holomem" / "engine"
 MANIFEST = "ENGINE.json"
 SOURCE = "itpartypattaya/hermes-plugin-holographic"
 GENERATED = ("__init__.py", MANIFEST)  # written here, not copied
+PATTERNS = "extract_patterns.py"
+_PATTERNS_NAME = "_EXTRACT_CATEGORIES"
+_PATTERNS_HEAD = ('''"""Auto-extraction patterns, copied by tools/sync_engine.py out of the provider (__init__.py) of {source} {tag}:
+the source text of its {name} assignment, exactly. Do not edit: change the plugin."""
+
+import re
+
+''')
 
 INIT = '''"""The holographic engine, vendored from {source} {tag} ({commit}) by tools/sync_engine.py.
 
@@ -69,8 +82,20 @@ def tag_files(repo: Path, tag: str) -> tuple[str, dict[str, bytes]]:
     return commit, files
 
 
+def patterns_source(provider: bytes, source: str, tag: str) -> bytes:
+    """``extract_patterns.py`` from the provider's source: its _EXTRACT_CATEGORIES assignment, exactly."""
+    text = provider.decode("utf-8")
+    for node in ast.parse(text).body:
+        if isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id == _PATTERNS_NAME
+                                                for t in node.targets):
+            segment = ast.get_source_segment(text, node)
+            return (_PATTERNS_HEAD.format(source=source, tag=tag, name=_PATTERNS_NAME) + segment + "\n").encode("utf-8")
+    raise SystemExit(f"{tag}: the provider has no {_PATTERNS_NAME}; extraction cannot be vendored")
+
+
 def vendor(repo: Path, tag: str, engine: Path = ENGINE) -> dict:
     commit, files = tag_files(repo, tag)
+    files[PATTERNS] = patterns_source(_git(repo, "show", f"{commit}:__init__.py"), SOURCE, tag)
     if engine.exists():
         shutil.rmtree(engine)
     engine.mkdir(parents=True)
@@ -106,6 +131,7 @@ def check(engine: Path = ENGINE, repo: Path | None = None) -> list[str]:
             problems.append(f"not from the plugin: {rel}")
     if repo is not None:
         commit, files = tag_files(repo, manifest.get("tag", ""))
+        files[PATTERNS] = patterns_source(_git(repo, "show", f"{commit}:__init__.py"), SOURCE, manifest.get("tag", ""))
         if commit != manifest.get("commit"):
             problems.append(f"tag {manifest.get('tag')} is now {commit}, the copy was made from {manifest.get('commit')}")
         if {n: sha256(d) for n, d in files.items()} != listed:

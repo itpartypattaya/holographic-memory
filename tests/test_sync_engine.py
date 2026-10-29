@@ -22,11 +22,15 @@ def _git(repo: Path, *args: str) -> str:
     return subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True, text=True).stdout.strip()
 
 
+_PATTERNS = "_EXTRACT_CATEGORIES = (\n    ([re.compile(r'\\bI\\s+prefer\\s+\\S')], \"user_pref\"),\n)"
+
+
 def _plugin(tmp_path: Path) -> Path:
     """A plugin-shaped repository with one tag, its provider, tests and stray caches."""
     repo = tmp_path / "plugin"
     for name, data in {
-        "__init__.py": b"from agent.memory_provider import MemoryProvider\n",
+        "__init__.py": ("import re\nfrom agent.memory_provider import MemoryProvider\n" + _PATTERNS
+                        + "\nOTHER = 1\n").encode("utf-8"),
         "store.py": b"STORE = 1\n",
         "text.py": b"TEXT = 1\n",
         "LICENSE": b"MIT\n",
@@ -51,11 +55,26 @@ def test_vendoring_takes_the_engine_and_nothing_else(tmp_path):
     repo, engine = _plugin(tmp_path), tmp_path / "engine"
     manifest = sync.vendor(repo, "v1.0.0", engine)
     assert sorted(manifest["files"]) == ["LICENSE", "LICENSES/Wikidata-CC0.txt", "dictionaries/__init__.py",
-                                         "dictionaries/ru.tsv.gz", "store.py", "text.py"]
+                                         "dictionaries/ru.tsv.gz", "extract_patterns.py", "store.py", "text.py"]
     assert manifest["commit"] == _git(repo, "rev-list", "-n", "1", "v1.0.0")
     assert (engine / "dictionaries" / "ru.tsv.gz").read_bytes() == bytes(range(256))  # binary untouched
     assert "MemoryProvider" not in (engine / "__init__.py").read_text(encoding="utf-8")  # ours, not the provider
     assert sync.check(engine, repo) == []
+
+
+def test_vendoring_takes_the_extraction_patterns_out_of_the_provider(tmp_path):
+    """The auto-extraction patterns live in the provider, which is not vendored: the one assignment is copied out of
+    the tag's __init__.py, exactly, and a hand edit of that copy is caught like any other."""
+    repo, engine = _plugin(tmp_path), tmp_path / "engine"
+    sync.vendor(repo, "v1.0.0", engine)
+    text = (engine / "extract_patterns.py").read_text(encoding="utf-8")
+    assert _PATTERNS in text
+    assert "MemoryProvider" not in text and "OTHER" not in text
+    namespace: dict = {}
+    exec(compile(text, "extract_patterns.py", "exec"), namespace)
+    assert namespace["_EXTRACT_CATEGORIES"][0][1] == "user_pref"
+    (engine / "extract_patterns.py").write_text(text.replace("prefer", "hate"), encoding="utf-8")
+    assert sync.check(engine) == ["changed: extract_patterns.py"]
 
 
 def test_check_catches_edits_removals_additions_and_a_moved_tag(tmp_path):
