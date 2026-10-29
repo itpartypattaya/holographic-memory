@@ -1,0 +1,5 @@
+* text=auto eol=lf
+*.gz binary
+*.ps1 text eol=crlf
+# vendored byte for byte (ENGINE.json hashes the bytes of the plugin tag): no line-ending conversion
+holomem/engine/** -text

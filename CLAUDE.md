@@ -10,3 +10,17 @@
 - Если проект нельзя честно починить в рамках задачи, тест остаётся красным или помечается как известный баг с причиной, и человек об этом узнаёт. Зелёным его не делать.
 - В отчёте по каждому новому тесту — что он проверяет и падает ли без исправления.
 <!-- test-honesty:end -->
+
+## Проект
+
+HANDOFF.md обновлять в каждой сессии, в той же сессии, что и правки (файл локальный, в `.gitignore`, как в плагине).
+
+- Что это: мост, который ставит движок памяти `hermes-plugin-holographic` в Claude Code и Codex CLI (хуки + MCP-сервер).
+  План — `plans/` (локально) и `Documents\hermes-plugin-holographic\plans\2026-10-30-holo-for-claude-code-codex.md`.
+- `holomem/engine/` — копия движка плагина **байт в байт** из релизного тега (`tools/sync_engine.py`, манифест
+  `ENGINE.json`). Здесь не править: исправление идёт в плагин, сюда приходит со следующим тегом
+  (`python tools/sync_engine.py --repo ../hermes-plugin-holographic --tag vX.Y.Z`). Единственный свой файл там —
+  сгенерированный `__init__.py`.
+- Чего движку не хватает вне Hermes, даёт `holomem/compat.py` (заглушки трёх модулей ядра, только если их нет).
+- Тесты: `uv run --no-project --python 3.12 --with pytest --with numpy --with snowballstemmer python -m pytest -q
+  --basetemp=<scratchpad> --override-ini=tmp_path_retention_policy=failed`; проверка копии — `python tools/sync_engine.py --check`.

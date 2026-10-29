@@ -1,0 +1,14 @@
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.ruff_cache/
+*.db
+*.db-wal
+*.db-shm
+dist/
+build/
+*.egg-info/
+# local working notes, as in the plugin repo
+plans/
+HANDOFF.md
