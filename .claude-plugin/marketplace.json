@@ -1,0 +1,11 @@
+{
+  "name": "holographic-memory",
+  "owner": {"name": "itpartypattaya"},
+  "plugins": [
+    {
+      "name": "holographic-memory",
+      "source": "./claude-plugin",
+      "description": "Long-term local memory: facts recalled before each turn, memory tools over MCP (needs `holomem` on PATH: uv tool install git+https://github.com/itpartypattaya/holographic-memory)"
+    }
+  ]
+}

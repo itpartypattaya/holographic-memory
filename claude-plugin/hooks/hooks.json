@@ -1,0 +1,10 @@
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {"hooks": [{"type": "command", "command": "holomem hook user-prompt --client claude-code", "timeout": 15}]}
+    ],
+    "SessionStart": [
+      {"hooks": [{"type": "command", "command": "holomem hook session-start --client claude-code", "timeout": 15}]}
+    ]
+  }
+}

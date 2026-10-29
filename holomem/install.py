@@ -127,7 +127,7 @@ def codex_block(approval: str = "auto") -> str:
         cmd = command("hook", name, "--client", "codex")
         lines += [f"[[hooks.{event}]]", f"[[hooks.{event}.hooks]]", 'type = "command"', f"command = {_toml_str(cmd)}",
                   f"command_windows = {_toml_str(cmd)}", f"timeout = {_HOOK_TIMEOUT}",
-                  f'statusMessage = "holographic memory"', ""]
+                  'statusMessage = "holographic memory"', ""]
     lines.append(MARK_END)
     return "\n".join(lines) + "\n"
 
