@@ -40,6 +40,9 @@ _DAY = {"type": "string", "description": "YYYY-MM-DD, 'today' or 'yesterday'."}
 _DAY_KEYS = ("valid_from", "valid_to", "as_of")  # the arguments that take _DAY (Tools._days)
 _LIMIT = {"type": "integer", "minimum": 1, "maximum": _MAX_LIMIT}
 _CATEGORIES = ("user_pref", "project", "tool", "general")
+_EXPECT = {"type": "object", "additionalProperties": {"type": "integer"},
+           "description": "Optional {\"<fact_id>\": <version_id>} as memory_history shows them: write only while each "
+                          "named fact is still at that version (otherwise nothing is written: changed_since)."}
 
 SCHEMAS = [
     {"name": "memory_add", "description": "Store a durable fact as one short standalone sentence (local store). The "
@@ -68,19 +71,21 @@ SCHEMAS = [
     {"name": "memory_change", "description": "The fact changed in the world: the new text becomes current, the old "
      "one is kept as history.",
      "inputSchema": {"type": "object", "properties": {"fact_id": _ID, "content": {"type": "string"},
-                                                      "valid_from": _DAY, "entities": _ENTITIES, "keywords": _KEYWORDS},
+                                                      "valid_from": _DAY, "entities": _ENTITIES, "keywords": _KEYWORDS,
+                                                      "expect": _EXPECT},
                      "required": ["fact_id", "content"]}},
     {"name": "memory_correct", "description": "The fact was wrong: the right text (and/or start date) replaces it; the "
      "wrong one never comes back as the past.",
      "inputSchema": {"type": "object", "properties": {"fact_id": _ID, "content": {"type": "string"},
-                                                      "valid_from": _DAY, "entities": _ENTITIES},
+                                                      "valid_from": _DAY, "entities": _ENTITIES, "expect": _EXPECT},
                      "required": ["fact_id"]}},
     {"name": "memory_end", "description": "The fact no longer holds and nothing replaces it.",
-     "inputSchema": {"type": "object", "properties": {"fact_id": _ID, "valid_to": _DAY}, "required": ["fact_id"]}},
+     "inputSchema": {"type": "object", "properties": {"fact_id": _ID, "valid_to": _DAY, "expect": _EXPECT},
+                     "required": ["fact_id"]}},
     {"name": "memory_revert", "description": "Undo the last change or correction of a fact.",
      "inputSchema": {"type": "object", "properties": {"fact_id": _ID}, "required": ["fact_id"]}},
     {"name": "memory_forget", "description": "Delete a fact with its whole history, when the person asks to forget it.",
-     "inputSchema": {"type": "object", "properties": {"fact_id": _ID}, "required": ["fact_id"]}},
+     "inputSchema": {"type": "object", "properties": {"fact_id": _ID, "expect": _EXPECT}, "required": ["fact_id"]}},
     {"name": "memory_history", "description": "A fact's versions: what it said when, where each was written.",
      "readOnly": True, "inputSchema": {"type": "object", "properties": {"fact_id": _ID}, "required": ["fact_id"]}},
     {"name": "memory_list", "description": "Stored facts, most trusted first.", "readOnly": True,
@@ -100,7 +105,8 @@ SCHEMAS = [
     {"name": "memory_feedback", "description": "Rate a fact after using it: helpful (accurate), unhelpful (outdated "
      "or wrong), or confirmed (the person said again, or agreed, that it is so).",
      "inputSchema": {"type": "object", "properties": {
-         "fact_id": _ID, "action": {"type": "string", "enum": ["helpful", "unhelpful", "confirmed"]}},
+         "fact_id": _ID, "action": {"type": "string", "enum": ["helpful", "unhelpful", "confirmed"]},
+         "expect": _EXPECT},
          "required": ["fact_id", "action"]}},
     {"name": "memory_merge", "description": "Two or more facts say the same thing (a duplicate, a retelling): the "
      "facts in 'from' become part of fact_id; their history and sources stay under it, search shows one fact. Not for "
@@ -111,14 +117,13 @@ SCHEMAS = [
                   "description": "The facts that become part of fact_id."},
          "keywords": {**_KEYWORDS, "description": "The keywords fact_id keeps (without: its own and theirs, its own "
                                                   "first)."},
-         "expect": {"type": "object", "additionalProperties": {"type": "integer"},
-                    "description": "Optional {\"<fact_id>\": <version_id>} as memory_history shows them: merge only "
-                                   "while each named fact is still at that version."}},
+         "expect": _EXPECT},
          "required": ["fact_id", "from"]}},
     {"name": "memory_update", "description": "Give a fact keywords (words a person might ask with that its text does "
      "not contain) or another category. Not for a new text: memory_change or memory_correct.",
      "inputSchema": {"type": "object", "properties": {"fact_id": _ID, "keywords": _KEYWORDS,
-                                                      "category": {"type": "string", "enum": list(_CATEGORIES)}},
+                                                      "category": {"type": "string", "enum": list(_CATEGORIES)},
+                                                      "expect": _EXPECT},
                      "required": ["fact_id"]}},
     {"name": "memory_enrich", "description": "Facts stored without keywords, the most recalled first: give each 3-8 "
      "with memory_update.", "readOnly": True,
@@ -252,8 +257,9 @@ class Tools:
         except DuplicateContentError as exc:
             return {"updated": False, "duplicate_of": exc.fact_id,
                     "reason": "another fact already says exactly this; remove one of them instead"}, True
-        except ChangedSince:
-            return {"error": "a fact changed since it was read; read its history again"}, True
+        except ChangedSince as exc:  # nothing was written: each named fact's current version id (null: none)
+            return {"error": "a fact changed since it was read; nothing was written; read its history again",
+                    "changed_since": {str(f): v for f, v in exc.current.items()}}, True
         except UnicodeError as exc:
             logger.warning("holomem: %s failed (%s)", name, type(exc).__name__)
             return {"error": f"{name} failed ({type(exc).__name__})"}, True
@@ -277,6 +283,30 @@ class Tools:
         today = datetime.date.fromisoformat(self.store.today())
         given = {"today": today, "yesterday": today - datetime.timedelta(days=1)}
         return {**a, **{k: given[w].isoformat() for k, w in words.items() if w in given}}
+
+    @staticmethod
+    def _expect(a: dict, name: str) -> dict[int, int] | None:
+        """*a*'s 'expect' as {fact_id: version_id}, None when not given; a Refusal names the shape otherwise."""
+        expect = a.get("expect")
+        if expect is None:
+            return None
+        if not isinstance(expect, dict) or not all(
+                str(k).strip().lstrip("-").isdigit() and isinstance(v, int) and not isinstance(v, bool)
+                for k, v in expect.items()):
+            raise Refusal(f"{name}: 'expect' must be an object {{\"<fact_id>\": <version_id>}}")
+        seen = {int(k): v for k, v in expect.items()}
+        if len(seen) != len(expect):  # "1" and "01" are one fact: keeping one of the two would drop a condition
+            raise Refusal(f"{name}: 'expect' names the same fact twice")
+        return seen or None
+
+    def _expecting(self, a: dict, name: str):
+        """The block a write runs in: with 'expect', the store's conditional transaction (issue #2: the write applies
+        only while each named fact is at the version given, checked in the write's own transaction); without, as
+        before."""
+        import contextlib
+
+        expect = self._expect(a, name)
+        return self.store.expecting(expect) if expect else contextlib.nullcontext()
 
     def _fact(self, a: dict) -> int:
         try:
@@ -355,12 +385,13 @@ class Tools:
         self._screen(content, "changed")
         words = self._keyword_check(a, "changed")
         fact_id = self._fact(a)
-        stored = self.store.fact_tags(fact_id)
-        tags = join_tags(split_tags(stored)[0], words)
-        if stored is None and a.get("keywords") is None:
-            tags = None  # an ended fact resumes with its last version's tags
-        result = self.store.change_fact(fact_id, content, valid_from=a.get("valid_from"), tags=tags,
-                                        entities=_entities(a), source=self.ctx.source("tool"))
+        with self._expecting(a, "memory_change"):
+            stored = self.store.fact_tags(fact_id)
+            tags = join_tags(split_tags(stored)[0], words)
+            if stored is None and a.get("keywords") is None:
+                tags = None  # an ended fact resumes with its last version's tags
+            result = self.store.change_fact(fact_id, content, valid_from=a.get("valid_from"), tags=tags,
+                                            entities=_entities(a), source=self.ctx.source("tool"))
         return self._unlinked(dict(result), a)
 
     def memory_correct(self, a: dict) -> dict:
@@ -368,19 +399,26 @@ class Tools:
             raise Refusal("memory_correct needs the right text in 'content' and/or the right start in 'valid_from'")
         if a.get("content") is not None:
             self._screen(a["content"], "corrected")
-        result = self.store.correct_fact(self._fact(a), a.get("content"), valid_from=a.get("valid_from"),
-                                         entities=_entities(a), source=self.ctx.source("tool"))
+        fact_id = self._fact(a)
+        with self._expecting(a, "memory_correct"):
+            result = self.store.correct_fact(fact_id, a.get("content"), valid_from=a.get("valid_from"),
+                                             entities=_entities(a), source=self.ctx.source("tool"))
         return self._unlinked(dict(result), a)
 
     def memory_end(self, a: dict) -> dict:
-        return dict(self.store.end_fact(self._fact(a), valid_to=a.get("valid_to")))
+        fact_id = self._fact(a)
+        with self._expecting(a, "memory_end"):
+            return dict(self.store.end_fact(fact_id, valid_to=a.get("valid_to")))
 
     def memory_revert(self, a: dict) -> dict:
         return dict(self.store.revert_fact(self._fact(a)))
 
     def memory_forget(self, a: dict) -> dict:
         fact_id = self._fact(a)
-        result = dict(self.store.forget_fact(fact_id))
+        with self._expecting(a, "memory_forget"):
+            result = dict(self.store.forget_fact(fact_id))
+        if result.get("scrub") == "pending":  # a rewrite cannot run inside the conditional transaction: now
+            result["scrub"] = "done" if self.store.scrub() else "pending"
         for gone in (fact_id, *result.get("merged_copies", ())):
             self.retriever.drop_cached(gone)
             if self.state is not None:
@@ -402,11 +440,7 @@ class Tools:
         if not isinstance(ids, list) or not ids or not all(isinstance(i, int) and not isinstance(i, bool) for i in ids):
             raise Refusal("memory_merge needs 'from': the ids (integers) of the facts that become part of fact_id")
         words = self._keyword_check(a, "merged") if a.get("keywords") is not None else None
-        expect = a.get("expect")
-        if expect is not None and (not isinstance(expect, dict) or not all(
-                str(k).strip().lstrip("-").isdigit() and isinstance(v, int) and not isinstance(v, bool)
-                for k, v in expect.items())):
-            raise Refusal('memory_merge: \'expect\' must be an object {"<fact_id>": <version_id>}')
+        expect = self._expect(a, "memory_merge")
         kept: list[str] = []
 
         def joined(keep_tags: str, copy_tags: list) -> str | None:
@@ -420,8 +454,7 @@ class Tools:
             kept[:] = keywords(candidates)
             return join_tags(user_tags, kept) if candidates else None
 
-        result = dict(self.store.merge_facts(keep, ids, tags=joined,
-                                             expect={int(k): v for k, v in expect.items()} if expect else None))
+        result = dict(self.store.merge_facts(keep, ids, tags=joined, expect=expect))
         for gone in (keep, *result.get("merged", ())):
             self.retriever.drop_cached(gone)
         result["keywords"] = kept
@@ -440,16 +473,17 @@ class Tools:
             raise Refusal("memory_update needs 'keywords' and/or 'category'")
         if category is not None and category not in _CATEGORIES:
             raise Refusal(f"category must be one of: {', '.join(_CATEGORIES)}")
-        tags, words = None, []
-        if a.get("keywords") is not None:
-            words = self._keyword_check(a, "updated")
-            stored = self.store.fact_tags(fact_id)
-            if stored is None:
-                raise Refusal(f"fact_id {fact_id} is not a current fact; nothing was changed")
-            tags = join_tags(split_tags(stored)[0], words)
-        # keywords alone are a search aid, not a change of the fact: its age (decay, "recently changed") stays
-        updated = self.store.update_fact(fact_id, tags=tags, category=category, touch=category is not None,
-                                         source=self.ctx.source("tool"))
+        tags = None
+        words = self._keyword_check(a, "updated") if a.get("keywords") is not None else []
+        with self._expecting(a, "memory_update"):
+            if a.get("keywords") is not None:
+                stored = self.store.fact_tags(fact_id)
+                if stored is None:
+                    raise Refusal(f"fact_id {fact_id} is not a current fact; nothing was changed")
+                tags = join_tags(split_tags(stored)[0], words)
+            # keywords alone are a search aid, not a change of the fact: its age (decay, "recently changed") stays
+            updated = self.store.update_fact(fact_id, tags=tags, category=category, touch=category is not None,
+                                             source=self.ctx.source("tool"))
         self.retriever.drop_cached(fact_id)
         result: dict = {"updated": updated}
         if updated and a.get("keywords") is not None:
@@ -461,9 +495,10 @@ class Tools:
         if action not in ("helpful", "unhelpful", "confirmed"):
             raise Refusal("action must be 'helpful', 'unhelpful' or 'confirmed'")
         fact_id = self._fact(a)
-        if action == "confirmed":
-            return dict(self.store.record_confirmation(fact_id, self.ctx.source("feedback")))
-        return dict(self.store.record_feedback(fact_id, helpful=action == "helpful"))
+        with self._expecting(a, "memory_feedback"):
+            if action == "confirmed":
+                return dict(self.store.record_confirmation(fact_id, self.ctx.source("feedback")))
+            return dict(self.store.record_feedback(fact_id, helpful=action == "helpful"))
 
     # -- reads -----------------------------------------------------------------------------------------------------
 

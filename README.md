@@ -148,6 +148,13 @@ The agents' own memory files are not changed.
 
 `memory_recall` is also listed: it is what `--recall mcp` calls before each prompt, not a tool for conversation.
 
+**Writing to the version the person saw.** A tool that shows a fact and applies the answer later (a review, a nightly
+report, another session) passes `expect: {"<fact_id>": <version_id>}`, the version ids `memory_history` showed, to
+`memory_change`, `memory_correct`, `memory_end`, `memory_forget`, `memory_feedback`, `memory_update` or
+`memory_merge`. The write applies only while every named fact is still at that version, checked in the write's own
+transaction, so no other session can change it in between. Otherwise nothing is written and the answer's
+`changed_since` gives each named fact's current version id (`null`: forgotten). Without `expect` a write is as before.
+
 ### Export
 
 ```bash

@@ -7,6 +7,7 @@ only ``as_of`` reads."""
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import hmac
 import json
@@ -177,8 +178,9 @@ class HistoryTooNew(RuntimeError):
 
 
 class ChangedSince(ValueError):
-    """A conditional write (merge with `expect`): a participant's current version is not the one the caller saw.
-    Nothing was written; *current* maps each named fact to its current version id (None: no current version)."""
+    """A conditional write (`expect`: a merge, or any write in expecting()): a named fact's current version is not
+    the one the caller saw. Nothing was written; *current* maps each named fact to its current version id (None: no
+    current version)."""
 
     def __init__(self, current: dict):
         super().__init__("changed_since: " + ", ".join(f"#{f} is at version id {v}" for f, v in current.items()))
@@ -661,6 +663,32 @@ class HistoryMixin:
             self._rewrite_fact(fact_id, prev["content"], prev["category"], prev["tags"], old_category=fact["category"],
                                trust=trust, restore=self._take_version_names(prev["version_id"], cur["version_id"]))
             return {"fact_id": fact_id, "status": "reverted", "current_version": int(prev["seq"])}
+
+    @contextlib.contextmanager
+    def expecting(self, expect: dict | None):
+        """A conditional write (issue #2): the writes in the block apply only while each fact in *expect*
+        ({fact_id: version_id}, as memory_history shows them) is still at that version: its head, the current version
+        or the ended one of a fact that left the present (None, or a forgotten fact, has none). Checked in the block's
+        own transaction, which the writes join, so no other process changes a fact between the check and the write;
+        ChangedSince (nothing written) otherwise. A file rewrite a forget asks for cannot run inside it: the caller
+        runs scrub() after the block. A text an older release changed in place becomes its version first, in a
+        transaction of its own: the person saw the text before it, and the answer names a version that stays."""
+        if expect:
+            self.require_history()
+            self._require_writer()
+            with self._tx():
+                self._reconcile_history()
+        with self._tx():
+            if expect:
+                self._reconcile_history()
+                seen = {int(f): (None if v is None else int(v)) for f, v in expect.items()}
+                current = {}
+                for f in seen:
+                    last = self._head_version(f)
+                    current[f] = int(last["version_id"]) if last is not None else None
+                if any(current[f] != seen[f] for f in seen):
+                    raise ChangedSince({f: current[f] for f in seen if current[f] != seen[f]})
+            yield
 
     def forget_fact(self, fact_id: int) -> dict:
         """The user asked to forget it: the fact and every version are deleted for good (see docs/history.md,
