@@ -9,7 +9,9 @@ Requirements:
 - a stored fact that looks like a credential is never sent to the endpoint;
 - holomem embed makes the missing vectors; the MCP server makes them in the background after memory_add;
 - an endpoint that fails costs one request: the next hooks (new processes) do not wait for it again, and still answer;
-- turning embeddings off deletes the stored vectors (nothing derived by an outside model stays in the file).
+- turning embeddings off deletes the stored vectors (nothing derived by an outside model stays in the file);
+- a fact that shares one ordinary word with the message ("сейчас"), unique in a small store, and is not close in
+  meaning is not recalled; a fact that shares one word and is about the message (a city named in it) still is.
 """
 from __future__ import annotations
 
@@ -35,7 +37,8 @@ KEY = "test-key-7f3a9c"
 DIM = 48
 
 # Words that share a meaning: a text holding any of them leans on that axis (a paraphrase shares no word with its fact)
-CONCEPTS = [("scooter", "ride", "motorbike", "commute"), ("bread", "bakery", "loaf"), ("python", "script", "code")]
+CONCEPTS = [("scooter", "ride", "motorbike", "commute"), ("bread", "bakery", "loaf"), ("python", "script", "code"),
+            ("учиться", "школ")]
 
 FILLER = ["The quarterly report goes to the board in March", "The office plant needs water on Mondays",
           "The team retro happens every second Friday", "The printer on the third floor jams often",
@@ -280,3 +283,22 @@ def test_vectors_are_made_at_session_start_and_the_server_still_serves(home, end
     assert f"#{target}" in recalled
     assert not is_error and forgot.get("forgotten") is True, forgot
     assert code == 0 and "Traceback" not in err and "ProgrammingError" not in err, err[-1500:]
+
+
+LONE_WORD = "В тексте статей блога не писать о прошлых версиях: статья звучит как написанная сейчас."
+CITY = "После переезда ребёнок пойдёт в хорошую школу в Лиссабоне."
+
+
+def test_one_ordinary_shared_word_without_meaning_recalls_nothing(home, endpoint):
+    """Seen live (2026-10-30, 35 facts): «Сколько мне сейчас лет?» recalled a rule about blog articles, the only fact
+    holding «сейчас»; in a small store an everyday word looks as rare as a name."""
+    # no fact on meaning alone: the city's fact can only come through the words, by its one shared word
+    ids = seed(home, [(text, []) for text in FILLER + [LONE_WORD, CITY]],
+               config(endpoint) + "embedding_prefetch_facts = 0\n")
+    lone, city = ids[-2], ids[-1]
+    (home / ".env").write_text(f"HOLO_TEST_EMBED_KEY={KEY}\n", encoding="utf-8")
+    assert cli(home, "embed").returncode == 0
+    spurious = context(hook(home, "user-prompt", prompt("Сколько мне сейчас лет?", session="a")))
+    assert f"#{lone}" not in spurious
+    named = context(hook(home, "user-prompt", prompt("Чему будет учиться ребёнок?", session="b")))
+    assert f"#{city}" in named  # one ordinary shared word too («ребёнок»), but meaning backs it

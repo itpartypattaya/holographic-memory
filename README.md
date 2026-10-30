@@ -41,6 +41,12 @@ words, by naming someone the message names, or (search by meaning on) by standin
 store for this message while naming the same people. Whatever gets in passes the recall screen (no credential, no
 instruction, no hidden markup) and the repeat window.
 
+With search by meaning on, words alone are not trusted with one shared ordinary word. In a small store an everyday
+word ("now", "me", "after") is held by one fact only and looks as rare as a name, so "How old am I now?" used to bring
+a note that merely says "now". A fact let in by exactly one shared word of a longer message is kept only when meaning
+backs it (it stands out from the store for this message, z ≥ 1). A name, an identifier, a one-word message and a fact
+without a vector are left as the words decided.
+
 ![The life of a fact: add, change and correct keep history, end, merge, forget](diagram/lifecycle/lifecycle.svg)
 
 Every change is a dated version, so "what held on 1 October" stays answerable. `memory_change` (it changed in the
