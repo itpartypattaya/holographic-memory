@@ -19,7 +19,7 @@ What it does:
 - **One store for both agents** by default (`~/.holographic/memory_store.db`): what you told Claude Code, Codex
   knows. Or one store per project (`scope = "project"`).
 
-Status: early (0.0.x). The engine is the plugin's `v0.24.0`, vendored unedited; its own suite has ~3000 tests. This
+Status: early (0.0.x). The engine is the plugin's `v0.25.1`, vendored unedited; its own suite has ~3000 tests. This
 repository's tests cover the bridge: hooks run as separate processes, the MCP server over stdio, the installer on
 copies of real settings files, search by meaning against a local fake endpoint.
 
