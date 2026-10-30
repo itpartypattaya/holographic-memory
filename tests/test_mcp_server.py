@@ -2,7 +2,7 @@
 
 Requirements:
 - the handshake answers initialize with the asked protocol version (or a supported one), never answers a
-  notification, lists the thirteen memory tools with read-only and destructive marks (Codex's "writes" approval
+  notification, lists the twenty memory tools (and the hook's memory_recall) with read-only and destructive marks (Codex's "writes" approval
   mode prompts by them);
 - memory_add stores a fact that memory_search then finds and the next prompt's hook recalls; it refuses an
   instruction or a credential (the engine's write screen) and stores nothing; a new fact that may contradict one is
@@ -89,8 +89,12 @@ def test_handshake_and_tool_list(mcp):
     tools = {t["name"]: t for t in mcp.request("tools/list")["result"]["tools"]}
     assert sorted(tools) == sorted(["memory_add", "memory_search", "memory_probe", "memory_related", "memory_change",
                                     "memory_correct", "memory_end", "memory_revert", "memory_forget",
-                                    "memory_history", "memory_list", "memory_stats", "memory_feedback", "memory_recall"])
+                                    "memory_history", "memory_list", "memory_stats", "memory_feedback", "memory_recall",
+                                    "memory_merge", "memory_update", "memory_enrich", "memory_reason", "memory_review",
+                                    "memory_entities", "memory_entity"])
     assert tools["memory_search"]["annotations"]["readOnlyHint"] is True
+    assert tools["memory_review"]["annotations"]["readOnlyHint"] is True
+    assert tools["memory_merge"]["annotations"]["readOnlyHint"] is False
     assert tools["memory_add"]["annotations"]["readOnlyHint"] is False
     assert tools["memory_forget"]["annotations"]["destructiveHint"] is True
     assert all("__" not in name for name in tools)  # Claude Code's permission rules split on "__"

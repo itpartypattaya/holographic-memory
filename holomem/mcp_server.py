@@ -4,6 +4,10 @@ Newline-delimited JSON-RPC 2.0 on stdin/stdout, standard library only: initializ
 Nothing but protocol messages goes to stdout. The store opens on the first tool call and stays open for the session,
 so a call costs milliseconds after the first. Which database: the config's scope, with the project taken from
 CLAUDE_PROJECT_DIR (set by Claude Code) or the server's working directory.
+
+With ``embeddings`` on, a background thread makes the vectors facts are missing (the plugin's catch-up after a turn):
+once the session starts, again after every write, and every few minutes for facts other sessions stored. It holds the
+server's lock only while it reads or writes the store, never while a request is out.
 """
 from __future__ import annotations
 
@@ -11,6 +15,7 @@ import json
 import logging
 import os
 import sys
+import threading
 
 from . import __version__, config
 from .hooks import answer
@@ -30,6 +35,9 @@ RECALL = {"name": "memory_recall",
 logger = logging.getLogger("holomem")
 
 PROTOCOLS = ("2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05")
+WRITES = frozenset({"memory_add", "memory_change", "memory_correct", "memory_revert", "memory_merge"})
+_CATCH_UP_SECONDS = 20.0  # one pass of the vectors thread
+_CATCH_UP_EVERY = 300.0  # an idle pass: facts another session or a hook stored
 INSTRUCTIONS = ("Long-term memory kept in a local store (holographic-memory). Facts relevant to a message arrive with "
                 "it; memory_search finds more. Store durable facts as short standalone sentences.")
 
@@ -41,6 +49,9 @@ class Server:
                            cwd=cwd or os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd())
         self.tools: Tools | None = None
         self.memory = self.state = None
+        self.lock = threading.Lock()  # the store and the retriever: tool calls and the vectors thread
+        self._wake, self._stop = threading.Event(), threading.Event()
+        self._vectors: threading.Thread | None = None
 
     def _tools(self) -> Tools | None:
         if self.tools is None:
@@ -53,7 +64,57 @@ class Server:
             self.tools = Tools(self.memory, self.ctx, self.state)
         return self.tools
 
+    def start_vectors(self) -> None:
+        """The vectors thread, when search by meaning is on (decided from the settings: no store is opened for it).
+
+        The store, numpy and the TLS and socket modules are loaded here, on the main thread, before it reads stdin:
+        on Windows an extension module (a DLL) loaded by another thread waits for as long as the main thread's
+        synchronous read of the stdin pipe lasts — a whole idle session — so the thread made no vector until the
+        agent's next tool call."""
+        if self.cfg.problems or not self.cfg.embeddings or self._vectors is not None:
+            return
+        import http.client  # noqa: F401 - loaded now, see above
+        import socket  # noqa: F401
+        import ssl  # noqa: F401
+
+        try:
+            with self.lock:
+                self._tools()
+        except Exception as exc:  # noqa: BLE001 - the first tool call says why; the thread tries again
+            self.tools = None
+            logger.warning("holomem: the store could not open (%s)", type(exc).__name__)
+        self._vectors = threading.Thread(target=self._vectors_loop, name="holomem-vectors", daemon=True)
+        self._vectors.start()
+
+    def _vectors_loop(self) -> None:
+        while not self._stop.is_set():
+            again = False
+            try:
+                with self.lock:
+                    if self._stop.is_set():  # closed meanwhile: never open the store again
+                        return
+                    tools = self._tools()
+                memory = tools.memory if tools is not None else None
+                if memory is None or memory.embedder is None:
+                    return
+                memory.catch_up(_CATCH_UP_SECONDS, lock=self.lock, stop=self._stop)
+                with self.lock:
+                    if self._stop.is_set():
+                        return
+                    again = memory.embedder.usable() and memory.pending_vectors().get("waiting", 0) > 0
+            except Exception as exc:  # noqa: BLE001 - named by kind; the next wake tries again
+                logger.warning("holomem: making fact vectors stopped (%s)", type(exc).__name__)
+            if not again:
+                self._wake.wait(_CATCH_UP_EVERY)
+            self._wake.clear()
+
     def close(self) -> None:
+        self._stop.set()
+        self._wake.set()
+        with self.lock:
+            self._close()
+
+    def _close(self) -> None:
         if self.memory is not None:
             self.memory.close()
         if self.state is not None:
@@ -85,7 +146,10 @@ class Server:
                 return self._ok(msg_id, {"content": [{"type": "text", "text": text}], "isError": False})
             if name not in NAMES:
                 return self._error(msg_id, -32602, f"Unknown tool: {name}")
-            answer, is_error = self._call(name, args)
+            with self.lock:
+                answer, is_error = self._call(name, args)
+            if name in WRITES and not is_error:
+                self._wake.set()
             return self._ok(msg_id, {"content": [{"type": "text", "text": dumps(answer)}], "isError": is_error})
         return self._error(msg_id, -32601, f"Method not found: {method}")
 
@@ -98,11 +162,13 @@ class Server:
         try:
             from .engine.text import is_greeting
 
-            if is_greeting(prompt) or self._tools() is None:
-                return ""
+            with self.lock:
+                if is_greeting(prompt) or self._tools() is None:
+                    return ""
             ctx = Context(client=self.ctx.client, session_id=str(args.get("session_id") or ""),
                           cwd=str(args.get("cwd") or self.ctx.cwd))
-            return answer("user-prompt", recall(self.memory, self.state, ctx, prompt))
+            with self.lock:
+                return answer("user-prompt", recall(self.memory, self.state, ctx, prompt))
         except Exception as exc:  # noqa: BLE001 - logged by kind; the prompt goes on without memory
             logger.warning("holomem: memory_recall failed (%s)", type(exc).__name__)
             return ""
@@ -134,6 +200,7 @@ def serve(client: str, stdin=None, stdout=None) -> int:
     stdout = stdout or sys.stdout.buffer
     logging.basicConfig(stream=sys.stderr, level=logging.WARNING, format="%(levelname)s %(message)s")
     server = Server(client)
+    server.start_vectors()
     try:
         for raw in stdin:
             line = raw.strip()

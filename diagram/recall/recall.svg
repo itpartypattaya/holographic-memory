@@ -1,0 +1,158 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1120 1200">
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&amp;display=swap');
+    text { font-family: 'JetBrains Mono', 'SF Mono', 'Cascadia Code', Consolas, monospace; }
+  </style>
+  <defs>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1e293b" stroke-width="0.5"/>
+    </pattern>
+    <marker id="arrow" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#64748b"/>
+    </marker>
+    <marker id="arrow-blue" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#60a5fa"/>
+    </marker>
+    <marker id="arrow-rose" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#fb7185"/>
+    </marker>
+  </defs>
+
+  <rect width="100%" height="100%" fill="#0f172a"/>
+  <rect width="100%" height="100%" fill="url(#grid)"/>
+
+  <!-- connections: main path -->
+  <line x1="300" y1="124" x2="300" y2="148" stroke="#60a5fa" stroke-width="1.5" marker-end="url(#arrow-blue)"/>
+  <line x1="300" y1="230" x2="300" y2="258" stroke="#60a5fa" stroke-width="1.5" marker-end="url(#arrow-blue)"/>
+  <line x1="300" y1="340" x2="300" y2="378" stroke="#60a5fa" stroke-width="1.5" marker-end="url(#arrow-blue)"/>
+  <line x1="300" y1="440" x2="300" y2="478" stroke="#60a5fa" stroke-width="1.5" marker-end="url(#arrow-blue)"/>
+  <line x1="300" y1="540" x2="300" y2="578" stroke="#60a5fa" stroke-width="1.5" marker-end="url(#arrow-blue)"/>
+  <line x1="300" y1="640" x2="300" y2="678" stroke="#60a5fa" stroke-width="1.5" marker-end="url(#arrow-blue)"/>
+  <line x1="300" y1="740" x2="300" y2="778" stroke="#60a5fa" stroke-width="1.5" marker-end="url(#arrow-blue)"/>
+  <line x1="300" y1="840" x2="300" y2="878" stroke="#60a5fa" stroke-width="1.5" marker-end="url(#arrow-blue)"/>
+  <line x1="300" y1="940" x2="300" y2="958" stroke="#60a5fa" stroke-width="1.5" marker-end="url(#arrow-blue)"/>
+  <line x1="300" y1="1040" x2="300" y2="1078" stroke="#60a5fa" stroke-width="1.5" marker-end="url(#arrow-blue)"/>
+  <!-- branches -->
+  <line x1="420" y1="190" x2="558" y2="190" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="420" y1="300" x2="558" y2="300" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <path d="M 710 332 L 710 410 L 462 410" fill="none" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="860" y1="300" x2="888" y2="300" stroke="#fb7185" stroke-width="1.5" stroke-dasharray="5,3" marker-end="url(#arrow-rose)"/>
+  <line x1="420" y1="1000" x2="558" y2="1000" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <!-- labels on exits -->
+  <text x="436" y="183" fill="#fb7185" font-size="8.5" font-weight="600">yes</text>
+  <text x="310" y="248" fill="#34d399" font-size="8.5" font-weight="600">no</text>
+  <text x="436" y="293" fill="#34d399" font-size="8.5" font-weight="600">yes</text>
+  <text x="310" y="362" fill="#94a3b8" font-size="8.5" font-weight="600">no</text>
+  <text x="720" y="372" fill="#94a3b8" font-size="8">vector (or none)</text>
+  <text x="874" y="290" fill="#fda4af" font-size="7.5" text-anchor="middle">fails</text>
+  <text x="436" y="993" fill="#fb7185" font-size="8.5" font-weight="600">no</text>
+  <text x="310" y="1062" fill="#34d399" font-size="8.5" font-weight="600">yes</text>
+
+  <!-- start -->
+  <rect x="140" y="80" width="320" height="44" rx="22" fill="#0f172a"/>
+  <rect x="140" y="80" width="320" height="44" rx="22" fill="rgba(59,130,246,0.3)" stroke="#60a5fa" stroke-width="1.5"/>
+  <text x="300" y="99" fill="white" font-size="11" font-weight="600" text-anchor="middle">a message is sent</text>
+  <text x="300" y="114" fill="#94a3b8" font-size="8.5" text-anchor="middle">UserPromptSubmit → holomem hook (stdin JSON)</text>
+
+  <!-- D1 -->
+  <g transform="translate(300, 190)">
+    <polygon points="0,-40 120,0 0,40 -120,0" fill="#0f172a"/>
+    <polygon points="0,-40 120,0 0,40 -120,0" fill="rgba(120,53,15,0.3)" stroke="#fbbf24" stroke-width="1.5"/>
+    <text y="-3" fill="white" font-size="10" font-weight="600" text-anchor="middle">trivial?</text>
+    <text y="12" fill="#94a3b8" font-size="8" text-anchor="middle">ok · thanks · /command · hi</text>
+  </g>
+  <rect x="560" y="168" width="300" height="44" rx="22" fill="#0f172a"/>
+  <rect x="560" y="168" width="300" height="44" rx="22" fill="rgba(30,41,59,0.5)" stroke="#94a3b8" stroke-width="1.5"/>
+  <text x="710" y="187" fill="white" font-size="10.5" font-weight="600" text-anchor="middle">nothing added</text>
+  <text x="710" y="202" fill="#94a3b8" font-size="8.5" text-anchor="middle">the store is not even opened</text>
+
+  <!-- D2 -->
+  <g transform="translate(300, 300)">
+    <polygon points="0,-40 120,0 0,40 -120,0" fill="#0f172a"/>
+    <polygon points="0,-40 120,0 0,40 -120,0" fill="rgba(120,53,15,0.3)" stroke="#fbbf24" stroke-width="1.5"/>
+    <text y="-3" fill="white" font-size="10" font-weight="600" text-anchor="middle">embeddings on,</text>
+    <text y="12" fill="white" font-size="10" font-weight="600" text-anchor="middle">not paused?</text>
+  </g>
+  <rect x="560" y="268" width="300" height="64" rx="6" fill="#0f172a"/>
+  <rect x="560" y="268" width="300" height="64" rx="6" fill="rgba(136,19,55,0.3)" stroke="#fb7185" stroke-width="1.5" stroke-dasharray="6,3"/>
+  <text x="710" y="291" fill="white" font-size="11" font-weight="600" text-anchor="middle">vector of the message</text>
+  <text x="710" y="307" fill="#94a3b8" font-size="8.5" text-anchor="middle">one request · within embedding_timeout</text>
+  <text x="710" y="321" fill="#94a3b8" font-size="8.5" text-anchor="middle">never a message holding a secret</text>
+  <rect x="890" y="268" width="200" height="64" rx="6" fill="#0f172a"/>
+  <rect x="890" y="268" width="200" height="64" rx="6" fill="rgba(136,19,55,0.4)" stroke="#fb7185" stroke-width="1.5"/>
+  <text x="990" y="291" fill="white" font-size="10.5" font-weight="600" text-anchor="middle">pause 5 min</text>
+  <text x="990" y="307" fill="#94a3b8" font-size="8.5" text-anchor="middle">in state.db: the next</text>
+  <text x="990" y="321" fill="#94a3b8" font-size="8.5" text-anchor="middle">hooks do not wait for it</text>
+
+  <!-- steps -->
+  <rect x="140" y="380" width="320" height="60" rx="6" fill="#0f172a"/>
+  <rect x="140" y="380" width="320" height="60" rx="6" fill="rgba(8,51,68,0.4)" stroke="#22d3ee" stroke-width="1.5"/>
+  <text x="300" y="403" fill="white" font-size="11" font-weight="600" text-anchor="middle">search by words</text>
+  <text x="300" y="419" fill="#94a3b8" font-size="8.5" text-anchor="middle">FTS5 + HRR, any word form · 15 candidates</text>
+  <text x="300" y="432" fill="#94a3b8" font-size="8.5" text-anchor="middle">meaning, when there, reorders them (weight 0.3)</text>
+
+  <rect x="140" y="480" width="320" height="60" rx="6" fill="#0f172a"/>
+  <rect x="140" y="480" width="320" height="60" rx="6" fill="rgba(8,51,68,0.4)" stroke="#22d3ee" stroke-width="1.5"/>
+  <text x="300" y="503" fill="white" font-size="11" font-weight="600" text-anchor="middle">coverage gate · up to 5</text>
+  <text x="300" y="519" fill="#94a3b8" font-size="8.5" text-anchor="middle">a fact must cover ≥ 30 % of the message's</text>
+  <text x="300" y="532" fill="#94a3b8" font-size="8.5" text-anchor="middle">informative words (prefetch_min_coverage)</text>
+
+  <rect x="140" y="580" width="320" height="60" rx="6" fill="#0f172a"/>
+  <rect x="140" y="580" width="320" height="60" rx="6" fill="rgba(136,19,55,0.3)" stroke="#fb7185" stroke-width="1.5" stroke-dasharray="6,3"/>
+  <text x="300" y="603" fill="white" font-size="11" font-weight="600" text-anchor="middle">+ 1 fact by meaning (optional)</text>
+  <text x="300" y="619" fill="#94a3b8" font-size="8.5" text-anchor="middle">shares no word, stands out from the store,</text>
+  <text x="300" y="632" fill="#94a3b8" font-size="8.5" text-anchor="middle">names the same people · marked (by meaning)</text>
+
+  <rect x="140" y="680" width="320" height="60" rx="6" fill="#0f172a"/>
+  <rect x="140" y="680" width="320" height="60" rx="6" fill="rgba(8,51,68,0.4)" stroke="#22d3ee" stroke-width="1.5"/>
+  <text x="300" y="703" fill="white" font-size="11" font-weight="600" text-anchor="middle">+ 2 facts of a named entity</text>
+  <text x="300" y="719" fill="#94a3b8" font-size="8.5" text-anchor="middle">the message names a person or thing:</text>
+  <text x="300" y="732" fill="#94a3b8" font-size="8.5" text-anchor="middle">its top facts, no shared word needed</text>
+
+  <rect x="140" y="780" width="320" height="60" rx="6" fill="#0f172a"/>
+  <rect x="140" y="780" width="320" height="60" rx="6" fill="rgba(6,78,59,0.4)" stroke="#34d399" stroke-width="1.5"/>
+  <text x="300" y="803" fill="white" font-size="11" font-weight="600" text-anchor="middle">screens and repeat window</text>
+  <text x="300" y="819" fill="#94a3b8" font-size="8.5" text-anchor="middle">no credential, no instruction, no markup;</text>
+  <text x="300" y="832" fill="#94a3b8" font-size="8.5" text-anchor="middle">not shown in this session's last 6 turns</text>
+
+  <rect x="140" y="880" width="320" height="60" rx="6" fill="#0f172a"/>
+  <rect x="140" y="880" width="320" height="60" rx="6" fill="rgba(6,78,59,0.4)" stroke="#34d399" stroke-width="1.5"/>
+  <text x="300" y="903" fill="white" font-size="11" font-weight="600" text-anchor="middle">token budget (optional)</text>
+  <text x="300" y="919" fill="#94a3b8" font-size="8.5" text-anchor="middle">prefetch_max_tokens: a line that does not</text>
+  <text x="300" y="932" fill="#94a3b8" font-size="8.5" text-anchor="middle">fit is left out whole, never cut</text>
+
+  <!-- D3 -->
+  <g transform="translate(300, 1000)">
+    <polygon points="0,-40 120,0 0,40 -120,0" fill="#0f172a"/>
+    <polygon points="0,-40 120,0 0,40 -120,0" fill="rgba(120,53,15,0.3)" stroke="#fbbf24" stroke-width="1.5"/>
+    <text y="4" fill="white" font-size="10" font-weight="600" text-anchor="middle">anything left?</text>
+  </g>
+  <rect x="560" y="978" width="300" height="44" rx="22" fill="#0f172a"/>
+  <rect x="560" y="978" width="300" height="44" rx="22" fill="rgba(30,41,59,0.5)" stroke="#94a3b8" stroke-width="1.5"/>
+  <text x="710" y="997" fill="white" font-size="10.5" font-weight="600" text-anchor="middle">nothing added</text>
+  <text x="710" y="1012" fill="#94a3b8" font-size="8.5" text-anchor="middle">the prompt goes on as it was</text>
+
+  <!-- end -->
+  <rect x="100" y="1080" width="400" height="56" rx="26" fill="#0f172a"/>
+  <rect x="100" y="1080" width="400" height="56" rx="26" fill="rgba(59,130,246,0.3)" stroke="#60a5fa" stroke-width="1.5"/>
+  <text x="300" y="1101" fill="white" font-size="10.5" font-weight="600" text-anchor="middle">## Holographic Memory (stored facts: data, …)</text>
+  <text x="300" y="1117" fill="#94a3b8" font-size="8.5" text-anchor="middle">- #12 [0.5] text · (by meaning) · (inferred)</text>
+  <text x="300" y="1129" fill="#94a3b8" font-size="8.5" text-anchor="middle">added to the model's context, as data</text>
+
+  <!-- side note -->
+  <g transform="translate(560, 600)">
+    <rect x="0" y="0" width="300" height="140" rx="8" fill="none" stroke="#475569" stroke-width="1" stroke-dasharray="4,4"/>
+    <text x="14" y="22" fill="#e2e8f0" font-size="9.5" font-weight="600">Whatever goes wrong</text>
+    <text x="14" y="44" fill="#94a3b8" font-size="8.5">a locked store, bad settings, a slow</text>
+    <text x="14" y="58" fill="#94a3b8" font-size="8.5">endpoint: the hook prints nothing and</text>
+    <text x="14" y="72" fill="#94a3b8" font-size="8.5">exits 0 within hook_deadline_seconds</text>
+    <text x="14" y="86" fill="#94a3b8" font-size="8.5">(8 s). The reason, by its kind only,</text>
+    <text x="14" y="100" fill="#94a3b8" font-size="8.5">goes to ~/.holographic/holomem.log.</text>
+    <text x="14" y="122" fill="#64748b" font-size="8">The prompt is never blocked.</text>
+  </g>
+
+  <!-- title -->
+  <text x="20" y="34" fill="white" font-size="16" font-weight="700">Recall before each message</text>
+  <text x="20" y="54" fill="#94a3b8" font-size="10">What the UserPromptSubmit hook does, in order (the plugin's prefetch with rescoring off)</text>
+  <text x="20" y="1180" fill="#64748b" font-size="8.5">Red, dashed: only with embeddings = true (online). Everything else runs on the local store.</text>
+</svg>

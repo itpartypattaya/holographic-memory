@@ -4,6 +4,7 @@
     holomem mcp --client claude-code|codex                              (stdio MCP server)
     holomem install claude-code|codex [--scope user|project] [--dry-run] [--uninstall]
     holomem import claude-memory|codex-memories [--dry-run]
+    holomem embed [--seconds N]                                         (search by meaning: vectors now)
     holomem status
 """
 from __future__ import annotations
@@ -38,6 +39,8 @@ def main(argv: list[str] | None = None) -> int:
     imp.add_argument("source", choices=["claude-memory", "codex-memories"])
     imp.add_argument("--dry-run", action="store_true")
     imp.add_argument("--path", help="read this file or directory instead of the default")
+    emb = sub.add_parser("embed", help="make the vectors of search by meaning now (embeddings on)")
+    emb.add_argument("--seconds", type=float, default=120.0, help="time to spend at most (default 120)")
     sub.add_parser("status", help="settings, database, facts")
     args = parser.parse_args(argv)
 
@@ -63,6 +66,10 @@ def main(argv: list[str] | None = None) -> int:
         from .importers import main as import_main
 
         return import_main(args)
+    if args.command == "embed":
+        from .embed import main as embed_main
+
+        return embed_main(args)
     from .status import main as status_main
 
     return status_main()

@@ -4,9 +4,10 @@ The checks are the plugin's: text that is not a fact (an instruction, a credenti
 write screen; a text the person asked to forget, a past version or a copy merged into another fact is not stored
 again as new; a new fact comes back with ``similar`` / ``possible_conflicts`` for the agent to decide on; a name that
 cannot be an entity is listed under ``entities_not_linked`` by position, never quoted. Answers are JSON text; a
-failure nobody meant is named by its kind, never by a message that may quote a fact.
+failure nobody meant is named by its kind, never by a message that may quote a fact. With ``embeddings`` on,
+memory_search also finds facts by meaning (``match: "meaning"``), as the plugin's search.
 
-Not in the bridge (yet): merge, aliases and entity maintenance, keywords enrichment by a nightly job, task outcomes.
+Not in the bridge (yet): rescoring, export, contradict, the experience journal (task outcomes).
 """
 from __future__ import annotations
 
@@ -28,6 +29,8 @@ _KEYWORDS = {"type": "array", "items": {"type": "string"},
              "description": "Up to 12 words a person might ask with that the text does not contain (synonyms, other "
                             "roots, translations). Never shown in recall."}
 _DAY = {"type": "string", "description": "YYYY-MM-DD, 'today' or 'yesterday'."}
+_LIMIT = {"type": "integer", "minimum": 1, "maximum": _MAX_LIMIT}
+_CATEGORIES = ("user_pref", "project", "tool", "general")
 
 SCHEMAS = [
     {"name": "memory_add", "description": "Store a durable fact as one short standalone sentence (local store). The "
@@ -82,6 +85,49 @@ SCHEMAS = [
      "inputSchema": {"type": "object", "properties": {
          "fact_id": _ID, "action": {"type": "string", "enum": ["helpful", "unhelpful", "confirmed"]}},
          "required": ["fact_id", "action"]}},
+    {"name": "memory_merge", "description": "Two or more facts say the same thing (a duplicate, a retelling): the "
+     "facts in 'from' become part of fact_id; their history and sources stay under it, search shows one fact. Not for "
+     "something the person wants gone: that is memory_forget.",
+     "inputSchema": {"type": "object", "properties": {
+         "fact_id": {"type": "integer", "description": "The fact that stays."},
+         "from": {"type": "array", "items": {"type": "integer"}, "minItems": 1, "maxItems": 20,
+                  "description": "The facts that become part of fact_id."},
+         "keywords": {**_KEYWORDS, "description": "The keywords fact_id keeps (without: its own and theirs, its own "
+                                                  "first)."},
+         "expect": {"type": "object", "additionalProperties": {"type": "integer"},
+                    "description": "Optional {\"<fact_id>\": <version_id>} as memory_history shows them: merge only "
+                                   "while each named fact is still at that version."}},
+         "required": ["fact_id", "from"]}},
+    {"name": "memory_update", "description": "Give a fact keywords (words a person might ask with that its text does "
+     "not contain) or another category. Not for a new text: memory_change or memory_correct.",
+     "inputSchema": {"type": "object", "properties": {"fact_id": _ID, "keywords": _KEYWORDS,
+                                                      "category": {"type": "string", "enum": list(_CATEGORIES)}},
+                     "required": ["fact_id"]}},
+    {"name": "memory_enrich", "description": "Facts stored without keywords, the most recalled first: give each 3-8 "
+     "with memory_update.", "readOnly": True,
+     "inputSchema": {"type": "object", "properties": {"limit": _LIMIT}}},
+    {"name": "memory_reason", "description": "Facts that involve ALL of the named people or things.", "readOnly": True,
+     "inputSchema": {"type": "object", "properties": {
+         "entities": {"type": "array", "items": {"type": "string"}, "minItems": 1}, "category": {"type": "string"},
+         "limit": _LIMIT}, "required": ["entities"]}},
+    {"name": "memory_review", "description": "Clean-up candidates, each with a reason (low trust, never recalled, "
+     "near-duplicates to merge), and names nobody confirmed. Advisory: nothing is changed.", "readOnly": True,
+     "inputSchema": {"type": "object", "properties": {"limit": _LIMIT}}},
+    {"name": "memory_entities", "description": "Known names with aliases and fact counts; 'provisional' = guessed from "
+     "one fact, nobody confirmed.", "readOnly": True,
+     "inputSchema": {"type": "object", "properties": {
+         "status": {"type": "string", "enum": ["all", "established", "provisional"]}, "limit": _LIMIT}}},
+    {"name": "memory_entity", "description": "Maintain names. alias: one person or thing, two names (name stays, other "
+     "becomes its alias; merges them if both exist). rename: other is the new name. delete: names that are not names "
+     "(a phrase, a command): the facts stay, text never creates them again. split: two people under one name: the "
+     "alias given as name becomes an entity of its own.",
+     "inputSchema": {"type": "object", "properties": {
+         "action": {"type": "string", "enum": ["alias", "rename", "delete", "split"]},
+         "name": {"type": "string"},
+         "other": {"type": "string", "description": "alias: the other name; rename: the new name."},
+         "names": {"type": "array", "items": {"type": "string"}, "maxItems": 100,
+                   "description": "delete: several names at once."}},
+         "required": ["action"]}},
 ]
 READ_ONLY = {s["name"] for s in SCHEMAS if s.pop("readOnly", False)}
 NAMES = [s["name"] for s in SCHEMAS]
@@ -288,6 +334,69 @@ class Tools:
                           "MEMORY.md, AGENTS.md) says the same, remove it there too.")
         return result
 
+    def memory_merge(self, a: dict) -> dict:
+        """The plugin's merge: keywords given replace the keep's; none given: the keep's own first, then each copy's,
+        distinct, up to the limit. The tags are joined inside the store's transaction, from what it holds then."""
+        keep = self._fact(a)
+        given = a.get("from")
+        ids = [given] if isinstance(given, int) and not isinstance(given, bool) else given
+        if not isinstance(ids, list) or not ids or not all(isinstance(i, int) and not isinstance(i, bool) for i in ids):
+            raise Refusal("memory_merge needs 'from': the ids (integers) of the facts that become part of fact_id")
+        words = self._keyword_check(a, "merged") if a.get("keywords") is not None else None
+        expect = a.get("expect")
+        if expect is not None and (not isinstance(expect, dict) or not all(
+                str(k).strip().lstrip("-").isdigit() and isinstance(v, int) and not isinstance(v, bool)
+                for k, v in expect.items())):
+            raise Refusal('memory_merge: \'expect\' must be an object {"<fact_id>": <version_id>}')
+        kept: list[str] = []
+
+        def joined(keep_tags: str, copy_tags: list) -> str | None:
+            user_tags, own = split_tags(keep_tags)
+            if words is not None:
+                kept[:] = words
+                return join_tags(user_tags, words)
+            candidates = list(own)
+            for tags in copy_tags:
+                candidates += split_tags(tags)[1]
+            kept[:] = keywords(candidates)
+            return join_tags(user_tags, kept) if candidates else None
+
+        result = dict(self.store.merge_facts(keep, ids, tags=joined,
+                                             expect={int(k): v for k, v in expect.items()} if expect else None))
+        for gone in (keep, *result.get("merged", ())):
+            self.retriever.drop_cached(gone)
+        result["keywords"] = kept
+        result["hint"] = (f"The merged facts are kept under #{keep}: memory_history {{fact_id: {keep}}} shows their "
+                          "versions and sources, and their text is not added as a new fact again."
+                          if result.get("merged") else f"These facts were part of #{keep} already; nothing changed.")
+        return result
+
+    def memory_update(self, a: dict) -> dict:
+        fact_id = self._fact(a)
+        category = a.get("category")
+        if a.get("content") is not None:
+            raise Refusal("memory_update takes no 'content': a new text is memory_change (it changed) or "
+                          "memory_correct (it was wrong); nothing was changed")
+        if a.get("keywords") is None and category is None:
+            raise Refusal("memory_update needs 'keywords' and/or 'category'")
+        if category is not None and category not in _CATEGORIES:
+            raise Refusal(f"category must be one of: {', '.join(_CATEGORIES)}")
+        tags, words = None, []
+        if a.get("keywords") is not None:
+            words = self._keyword_check(a, "updated")
+            stored = self.store.fact_tags(fact_id)
+            if stored is None:
+                raise Refusal(f"fact_id {fact_id} is not a current fact; nothing was changed")
+            tags = join_tags(split_tags(stored)[0], words)
+        # keywords alone are a search aid, not a change of the fact: its age (decay, "recently changed") stays
+        updated = self.store.update_fact(fact_id, tags=tags, category=category, touch=category is not None,
+                                         source=self.ctx.source("tool"))
+        self.retriever.drop_cached(fact_id)
+        result: dict = {"updated": updated}
+        if updated and a.get("keywords") is not None:
+            result["keywords"] = words
+        return result
+
     def memory_feedback(self, a: dict) -> dict:
         action = a["action"]
         if action not in ("helpful", "unhelpful", "confirmed"):
@@ -314,6 +423,7 @@ class Tools:
         if not isinstance(query, str):
             raise Refusal("query must be a string")
         floor = float(a.get("min_trust", self.cfg.min_trust_threshold))
+        category = a.get("category")
         if a.get("as_of"):
             from .engine.history import parse_day
 
@@ -322,8 +432,26 @@ class Tools:
                                                      limit=_limit(a)))
             found["count"] = len(found.get("results", []))
             return found
-        results = self.retriever.search(query, category=a.get("category"), min_trust=floor, limit=_limit(a))
-        results = self._with_origins(list(results))
+        limit, meaning = _limit(a), self.memory.meaning_of(query, before_turn=False)
+        results = list(self.retriever.search(query, category=category, min_trust=floor, limit=limit, meaning=meaning))
+        if meaning is not None:  # the plugin's splice: by meaning after every fact that holds the words, then those
+            from .engine import embeddings  # closer in meaning than anything the words found
+
+            words, min_score = list(results), self.memory.embedding.min_score
+            if len(results) < limit:
+                for fact in self.retriever.by_meaning(meaning, exclude={f["fact_id"] for f in results},
+                                                      category=category, min_trust=floor, limit=limit - len(results),
+                                                      margin=embeddings.SEARCH_MARGIN, min_score=min_score):
+                    fact["match"] = "meaning"
+                    results.append(fact)
+            if words:
+                for fact in self.retriever.beyond_words(meaning, query, words, exclude={f["fact_id"] for f in results},
+                                                        category=category, min_trust=floor, k=embeddings.SEARCH_TOP_K,
+                                                        beat=embeddings.SEARCH_BEAT_WORDS,
+                                                        z_min=embeddings.SEARCH_Z_FLOOR, min_score=min_score):
+                    fact["match"] = "meaning"
+                    results.append(fact)
+        results = self._with_origins(results)
         return {"results": results, "count": len(results)}
 
     def memory_probe(self, a: dict) -> dict:
@@ -334,6 +462,73 @@ class Tools:
     def memory_related(self, a: dict) -> dict:
         results = list(self.retriever.related(a["entity"], limit=_limit(a), min_trust=self.cfg.min_trust_threshold))
         return {"results": results, "count": len(results)}
+
+    def memory_reason(self, a: dict) -> dict:
+        names = _entities(a)
+        if not names:
+            raise Refusal("memory_reason needs 'entities': the names to join")
+        results = self._with_origins(list(self.retriever.reason(names, category=a.get("category"), limit=_limit(a),
+                                                                min_trust=self.cfg.min_trust_threshold)))
+        return {"results": results, "count": len(results)}
+
+    def memory_enrich(self, a: dict) -> dict:
+        facts = [{"fact_id": r["fact_id"], "content": r["content"]}
+                 for r in self.store.facts_without_keywords(_KW_MARK, _limit(a))]
+        result: dict = {"facts": facts, "count": len(facts)}
+        if facts:
+            result["hint"] = ("Give each 3-8 keywords with memory_update {fact_id, keywords}: synonyms, other roots and "
+                              "translations someone might ask with.")
+        return result
+
+    def memory_review(self, a: dict) -> dict:
+        facts = self.retriever.review(limit=_limit(a))
+        names = self.store.stale_provisional_entities(limit=_limit(a))
+        aliases = self.store.unconfirmed_text_aliases(limit=_limit(a))
+        result: dict = {"candidates": facts, "count": len(facts), "entity_candidates": names,
+                        "alias_candidates": aliases}
+        hints = []
+        if any(str(f.get("reason", "")).startswith("near-duplicate") for f in facts):
+            hints.append("A near-duplicate: memory_merge {fact_id: <keep>, from: [...]} keeps one fact and both "
+                         "histories.")
+        if names:
+            hints.append("entity_candidates: memory_entity {action: delete, names: [...]} for those that are not "
+                         "names (the facts stay).")
+        if aliases:
+            hints.append("alias_candidates: names a fact's text gave as another name. One person: memory_entity "
+                         "{action: alias, name, other}; two: {action: split, name: <alias>}.")
+        if hints:
+            result["hint"] = " ".join(hints)
+        return result
+
+    def memory_entities(self, a: dict) -> dict:
+        status = a.get("status")
+        rows = self.store.list_entities(limit=_limit(a, 50), status=None if status in (None, "", "all") else status)
+        counts = self.store.entity_counts()
+        result: dict = {"entities": rows, "count": len(rows), "provisional_entities": counts["provisional"]}
+        if counts["text_aliases"]:
+            result["text_aliases"] = counts["text_aliases"]
+        return result
+
+    def memory_entity(self, a: dict) -> dict:
+        action, name, other = a["action"], a.get("name"), a.get("other")
+        if action in ("alias", "rename"):
+            if not isinstance(name, str) or not isinstance(other, str):
+                raise Refusal(f"memory_entity {action} needs 'name' and 'other'")
+            call = self.store.add_alias if action == "alias" else self.store.rename_entity
+            return dict(call(name, other))
+        if action == "split":
+            if not isinstance(name, str):
+                raise Refusal("memory_entity split needs 'name': the alias that becomes an entity of its own")
+            return dict(self.store.split_alias(name))
+        if action == "delete":
+            names = a.get("names")
+            names = [names] if isinstance(names, str) else list(names or [])
+            if isinstance(name, str) and name:
+                names.append(name)
+            if not names or not all(isinstance(n, str) for n in names):
+                raise Refusal("memory_entity delete needs 'name' or 'names'")
+            return dict(self.store.delete_entities(names))
+        raise Refusal("action must be one of: alias, rename, delete, split")
 
     def memory_history(self, a: dict) -> dict:
         return dict(self.store.history(self._fact(a)))
@@ -360,7 +555,13 @@ class Tools:
                 "low_trust": read("SELECT COUNT(*) FROM facts WHERE trust_score < ?",
                                   (self.cfg.min_trust_threshold,))[0][0],
                 "origin": counts, "history": self.store.history_counts() or "not set up yet",
+                "search_by_meaning": self._meaning_stats(),
                 "database": str(self.memory.path), "scope": self.cfg.scope}
+
+    def _meaning_stats(self) -> dict | str:
+        if self.memory.embedder is None:
+            return "off"
+        return {"endpoint": self.memory.embedder.status(), **self.memory.pending_vectors()}
 
 
 def dumps(answer: dict) -> str:

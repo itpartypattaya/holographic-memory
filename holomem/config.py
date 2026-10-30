@@ -17,7 +17,8 @@ from pathlib import Path
 
 ENV_HOME = "HOLOMEM_HOME"
 
-# key -> (default, kind, allowed): kind float/int/bool/str/path; allowed = a set of strings or (low, high) for numbers
+# key -> (default, kind, allowed): kind float/int/bool/str/text/path; allowed = a set of strings or (low, high) for
+# numbers; str is a choice (lower-cased), text is kept as written (an address, a model name)
 _KEYS: dict[str, tuple] = {
     "db_path": ("", "path", None),
     "scope": ("global", "str", {"global", "project"}),
@@ -34,6 +35,17 @@ _KEYS: dict[str, tuple] = {
     "auto_extract": (False, "bool", None),
     "store_policy": ("ask", "str", {"ask", "proactive"}),
     "hook_deadline_seconds": (8.0, "float", (0.5, 25.0)),
+    # search by meaning (ONLINE when on): the plugin's embedding_* keys, read by the engine (embeddings.Settings)
+    "embeddings": (False, "bool", None),
+    "embedding_url": ("https://api.openai.com/v1", "text", None),
+    "embedding_model": ("text-embedding-3-small", "text", None),
+    "embedding_key_env": ("OPENAI_API_KEY", "text", None),
+    "embedding_dimensions": (None, "int", (1, 65536)),
+    "embedding_timeout": (3.0, "float", (0.5, 6.0)),
+    "embedding_min_score": (None, "float", (-1.0, 1.0)),
+    "embedding_prefetch_facts": (1, "int", (0, 3)),
+    "embedding_weight": (0.3, "float", (0.0, 0.8)),
+    "embedding_space": ("", "text", None),
 }
 
 
@@ -55,6 +67,16 @@ class Config:
     auto_extract: bool = False
     store_policy: str = "ask"
     hook_deadline_seconds: float = 8.0
+    embeddings: bool = False
+    embedding_url: str = "https://api.openai.com/v1"
+    embedding_model: str = "text-embedding-3-small"
+    embedding_key_env: str = "OPENAI_API_KEY"
+    embedding_dimensions: int | None = None
+    embedding_timeout: float = 3.0
+    embedding_min_score: float | None = None
+    embedding_prefetch_facts: int = 1
+    embedding_weight: float = 0.3
+    embedding_space: str = ""
     problems: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
 
@@ -66,6 +88,17 @@ class Config:
     def state_path(self) -> Path:
         """The bridge's own bookkeeping (turn numbers, what was recalled when): never inside the fact store."""
         return self.home / "state.db"
+
+    @property
+    def secrets_path(self) -> Path:
+        """KEY=VALUE lines for the embeddings key: read before the environment, so the key need not be a variable of the
+        whole user session (where every other program that knows the name would pick it up)."""
+        return self.home / ".env"
+
+    def embedding_config(self) -> dict:
+        """The plugin's config keys of search by meaning, as the engine's embeddings.settings_from reads them."""
+        keys = {key: getattr(self, key) for key in _KEYS if key.startswith("embedding")}
+        return {k: v for k, v in keys.items() if v is not None and v != ""}
 
     def database_for(self, cwd: str | Path | None) -> Path | None:
         """The fact store for a session started in *cwd*: the one database in global scope; in project scope one per
@@ -130,6 +163,8 @@ def _coerce(key: str, value, kind: str, allowed):
         return None, f"{key} must be a string"
     if kind == "path":
         return value, None
+    if kind == "text":
+        return value.strip(), None
     text = value.strip().lower()
     if allowed and text not in allowed:
         return None, f"{key} must be one of: {', '.join(sorted(allowed))}"

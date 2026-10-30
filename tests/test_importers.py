@@ -102,6 +102,45 @@ def test_codex_bullets_become_facts(tmp_path):
     assert not any("prose" in text for text, _ in got)
 
 
+# The real file (Codex 0.163) ends with "What's in Memory": an index of past tasks per working directory — a keyword
+# line per task, with "desc:" / "learnings:" sub-bullets. A task log, not facts about the person or their work.
+SUMMARY_WITH_INDEX = """v1
+
+## User preferences
+
+- Default to short answers and lead with the outcome. [ad-hoc note]
+
+## General Tips
+
+- Quote Windows paths with spaces. [ad-hoc note]
+
+## What's in Memory
+
+### C:\\work\\bakery
+
+#### 2026-10-28
+
+- Bakery site release: `v1.2`, PR #10, `deploy.yml`
+  - desc: Review-to-release workflow for the bakery site; use before the next release.
+  - learnings: Run the smoke tests before tagging; CI alone missed a broken page.
+
+### Older Memory Topics
+
+#### Gmail workflow
+
+- Mail triage: `newer_than:7d`, `next_page_token`
+  - desc: Read-only triage of important mail.
+"""
+
+
+def test_codex_task_index_is_not_imported(tmp_path):
+    path = tmp_path / "memory_summary.md"
+    path.write_text(SUMMARY_WITH_INDEX, encoding="utf-8")
+    got = [(c.text, c.category) for c in importers.codex_candidates(path)]
+    assert got == [("Default to short answers and lead with the outcome.", "user_pref"),
+                   ("Quote Windows paths with spaces.", "general")]
+
+
 def test_import_screens_dedupes_and_marks_trust(tmp_path, home):
     path = tmp_path / "memory_summary.md"
     path.write_text(SUMMARY, encoding="utf-8")

@@ -3,7 +3,8 @@
 A hook is a new process at every prompt, so what the plugin keeps in memory between turns lives here: the turn
 number of each session and which revision of which fact was recalled at which turn (the repeat window,
 ``prefetch_repeat_turns``). A revision is (fact id, 12 hex of the text's sha1), as in the plugin: a reworded fact
-is new. Sessions untouched for 14 days, and all but the 200 most recent, are dropped.
+is new. Sessions untouched for 14 days, and all but the 200 most recent, are dropped. A pause after a failed call to
+the embeddings endpoint lives here too: each hook is a new process, and the endpoint's own backoff would end with it.
 """
 from __future__ import annotations
 
@@ -16,6 +17,7 @@ CREATE TABLE IF NOT EXISTS turns (session TEXT PRIMARY KEY, turn INTEGER NOT NUL
 CREATE TABLE IF NOT EXISTS recalled (
     session TEXT NOT NULL, fact_id INTEGER NOT NULL, rev TEXT NOT NULL, turn INTEGER NOT NULL,
     PRIMARY KEY (session, fact_id, rev));
+CREATE TABLE IF NOT EXISTS pauses (name TEXT PRIMARY KEY, until REAL NOT NULL);
 """
 _KEEP_DAYS, _KEEP_SESSIONS, _KEEP_FACTS = 14, 200, 512
 
@@ -23,7 +25,9 @@ _KEEP_DAYS, _KEEP_SESSIONS, _KEEP_FACTS = 14, 200, 512
 class State:
     def __init__(self, path: Path):
         path.parent.mkdir(parents=True, exist_ok=True)
-        self._conn = sqlite3.connect(str(path), timeout=5.0, isolation_level=None)
+        # check_same_thread off: the MCP server uses it from its main thread and its vectors thread, one at a time
+        # (under the server's lock)
+        self._conn = sqlite3.connect(str(path), timeout=5.0, isolation_level=None, check_same_thread=False)
         self._conn.executescript(_SCHEMA)
 
     def close(self) -> None:
@@ -56,6 +60,15 @@ class State:
                                    "ON CONFLICT(session, fact_id, rev) DO UPDATE SET turn = excluded.turn", rows)
             self._conn.execute("DELETE FROM recalled WHERE session = ? AND rowid NOT IN (SELECT rowid FROM recalled "
                                "WHERE session = ? ORDER BY turn DESC LIMIT ?)", (session, session, _KEEP_FACTS))
+
+    def paused(self, name: str) -> bool:
+        row = self._conn.execute("SELECT until FROM pauses WHERE name = ?", (name,)).fetchone()
+        return bool(row) and row[0] > time.time()
+
+    def pause(self, name: str, seconds: float) -> None:
+        with self._conn:
+            self._conn.execute("INSERT INTO pauses (name, until) VALUES (?, ?) ON CONFLICT(name) DO UPDATE SET "
+                               "until = excluded.until", (name, time.time() + seconds))
 
     def forget_fact(self, fact_id: int) -> None:
         """A forgotten fact leaves no trace here either (its text hash)."""

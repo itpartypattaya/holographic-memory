@@ -39,7 +39,7 @@ def block(cfg: Config, memory: Memory | None, *, scoped_out: bool = False) -> st
         "- One-word names (a first name, a pet) go in entities=[\"Masha\"] when adding, so later facts link to them.",
         "- A stored fact that no longer holds is changed (memory_change: it changed), ended (memory_end: no longer "
         "true) or corrected (memory_correct: it was wrong); the history is kept. \"Forget it\" from the person: "
-        "memory_forget.",
+        "memory_forget. Two facts that say the same thing become one with memory_merge.",
         "- memory_feedback rates a recalled fact (#id) helpful or unhelpful, or records that the person confirmed it.",
     ]
     if cfg.scope == "project":

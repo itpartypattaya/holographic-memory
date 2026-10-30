@@ -4,8 +4,9 @@
   to the first ``**Why:**`` / ``**How to apply:**`` line (the note itself, not its reasoning), or its description when
   the body is empty. MEMORY.md is the index and is skipped. The file's type gives the category (user and feedback ->
   user_pref, project -> project, the rest general).
-- codex-memories: Codex's ``~/.codex/memories/memory_summary.md``: one fact per bullet; a bullet under a heading that
-  names preferences is user_pref. A trailing ``[ad-hoc note]``-style tag is dropped.
+- codex-memories: Codex's ``~/.codex/memories/memory_summary.md``: one fact per top-level bullet; a bullet under a
+  heading that names preferences is user_pref. A trailing ``[ad-hoc note]``-style tag is dropped. The file's last
+  section, "What's in Memory", indexes past tasks (keywords, desc, learnings) and is not imported.
 
 Every candidate goes through the engine's write screen (an instruction or a credential is not stored), longer than 400
 characters or shorter than the engine's floor is skipped, a text already stored or nearly so is skipped. Imported facts
@@ -25,6 +26,8 @@ _MAX_CHARS = 400
 _CATEGORY = {"user": "user_pref", "feedback": "user_pref", "project": "project"}
 _TAG = re.compile(r"\s*\[[a-z][a-z -]{1,30}\]\s*$")
 _WHY = re.compile(r"^\s*\*\*(why|how to apply)\s*:?\*\*", re.IGNORECASE)
+# Codex's index of past tasks ("What's in Memory": keyword lines, desc/learnings sub-bullets): a task log, not facts
+_INDEX = re.compile(r"^##\s+what[’']?s in memory\s*$", re.IGNORECASE)
 
 
 @dataclass
@@ -80,9 +83,11 @@ def codex_candidates(path: Path) -> list[Candidate]:
     for line in lines:
         stripped = line.strip()
         if stripped.startswith("#"):
+            if _INDEX.match(stripped):
+                break  # the task index runs to the end of the file
             heading = stripped.lstrip("#").strip().lower()
             continue
-        if stripped[:2] in ("- ", "* "):
+        if line[:2] in ("- ", "* "):
             text = _TAG.sub("", " ".join(stripped[2:].split()))
             if text:
                 out.append(Candidate(text, "user_pref" if "prefer" in heading else "general", path.name))

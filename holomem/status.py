@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 
 from . import config, install
-from .memory import Context, open_memory
+from .memory import Context, open_memory, secrets
 
 
 def _claude_state() -> str:
@@ -29,6 +29,23 @@ def _codex_state() -> str:
     return "installed (user)" if install.MARK_BEGIN in text else "not installed (user)"
 
 
+def _meaning(cfg: config.Config, memory) -> str:
+    """off, or the model, where its key comes from (never the key), the endpoint's state and the vectors."""
+    if memory.embedder is None:
+        return "off"
+    from .engine.embeddings import _RE_ENV_NAME, _RE_KEY_PREFIX
+
+    name = cfg.embedding_key_env
+    if not _RE_ENV_NAME.fullmatch(name) or _RE_KEY_PREFIX.match(name):
+        # a key pasted where its variable's name goes: never echoed (the engine refuses it the same way)
+        return f"on ({cfg.embedding_model}); embedding_key_env is not the name of a variable (not shown)"
+    where = ("in " + str(cfg.secrets_path) if name in secrets(cfg.secrets_path)
+             else "in the environment" if os.environ.get(name) else "not set")
+    counts = memory.pending_vectors()
+    return (f"on ({cfg.embedding_model}); key {name}: {where}; endpoint: {memory.embedder.status()}; facts with a "
+            f"vector {counts.get('facts_with_vector', 0)}, waiting {counts.get('waiting', 0)}")
+
+
 def main() -> int:
     cfg = config.load()
     print(f"settings: {cfg.home / 'config.toml'}" + ("" if (cfg.home / "config.toml").exists() else " (none: defaults)"))
@@ -43,6 +60,7 @@ def main() -> int:
     else:
         try:
             print(f"database: {memory.path}; facts: {memory.store.count_facts()}")
+            print(f"search by meaning: {_meaning(cfg, memory)}")
         finally:
             memory.close()
     print(f"python: {install.python_path()}")
