@@ -104,6 +104,17 @@ def has_journal(home: Path) -> bool:
     return bool(rows(home / "memory_store.db", "SELECT 1 FROM sqlite_master WHERE name = 'memory_attempts'"))
 
 
+def wal(home: Path) -> None:
+    """The store in WAL, as the plugin's own Python (uv, SQLite 3.53) keeps it. A SQLite with the WAL-reset bug (the
+    system one on Ubuntu 24.04, 3.45) leaves a new file in rollback mode, where another process mid-read blocks the
+    forget itself, not only its rewrite; a database already in WAL stays in WAL (engine/sqlite_util.py)."""
+    conn = sqlite3.connect(home / "memory_store.db")
+    try:
+        assert conn.execute("PRAGMA journal_mode=WAL").fetchone()[0].lower() == "wal"
+    finally:
+        conn.close()
+
+
 def file_bytes(home: Path) -> bytes:
     """The database file and its WAL, as a disk would show them."""
     data = (home / "memory_store.db").read_bytes()
@@ -290,6 +301,7 @@ def test_the_budget_counts_the_attempt_line(home):
 
 def test_forget_removes_the_attempt_its_outcome_and_their_text_from_the_file(home):
     (fid,) = seed(home, [(DEPLOY, [])], EXP)
+    wal(home)
     attempt = attempt_of(context(hook(home, "user-prompt", prompt(ASK))))
     client = Client(home).start()
     try:
@@ -422,6 +434,7 @@ def test_a_recall_through_the_server_leaves_a_pending_rewrite_to_a_tool_call(hom
     """memory_recall answers a prompt (a hook of type mcp_tool): a rewrite a blocked forget left is not done there,
     but by the next memory tool call."""
     deploy, other = seed(home, [(DEPLOY, []), ("Bob runs a bakery on the corner", [])], EXP)
+    wal(home)
     client = Client(home).start()
     try:
         client.call("memory_stats")  # the store is open
