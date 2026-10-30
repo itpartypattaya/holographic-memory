@@ -302,3 +302,20 @@ def test_one_ordinary_shared_word_without_meaning_recalls_nothing(home, endpoint
     assert f"#{lone}" not in spurious
     named = context(hook(home, "user-prompt", prompt("Чему будет учиться ребёнок?", session="b")))
     assert f"#{city}" in named  # one ordinary shared word too («ребёнок»), but meaning backs it
+
+
+SCHOOL = "Лена ходит в хорошую школу у моря."
+
+
+def test_a_name_in_passing_brings_no_fact_meaning_does_not_back(home, endpoint):
+    """A long message that names someone in passing ("Лена прислала счёт…") brought that person's top facts by the
+    name alone, about anything; with meaning on, such a fact must stand out for the message (z ≥ 1). A message about
+    the same person and the fact's subject still brings it."""
+    ids = seed(home, [(text, []) for text in FILLER] + [(SCHOOL, ["Лена"])], config(endpoint))
+    school = ids[-1]
+    (home / ".env").write_text(f"HOLO_TEST_EMBED_KEY={KEY}\n", encoding="utf-8")
+    assert cli(home, "embed").returncode == 0
+    passing = "Лена прислала счёт за электричество, интернет и воду за прошлый месяц, оплати его до пятницы"
+    assert f"#{school}" not in context(hook(home, "user-prompt", prompt(passing, session="a")))
+    about = "Лена спрашивает, где и чему она будет учиться в следующем году после переезда в другой город"
+    assert f"#{school}" in context(hook(home, "user-prompt", prompt(about, session="b")))

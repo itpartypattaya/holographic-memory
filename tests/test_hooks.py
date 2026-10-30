@@ -1,6 +1,6 @@
 """Hooks, run as the clients run them: a new process per event, JSON on stdin, JSON on stdout.
 
-Requirements (recall before a turn, as the plugin's prefetch):
+Requirements (recall before a turn, the prefetch):
 - a stored fact relevant to the prompt comes back as ``- #id [trust] text`` under the data header, in the output shape
   both Claude Code and Codex read (hookSpecificOutput.additionalContext);
 - an acknowledgement, a slash command, an empty or unrelated prompt recall nothing, and print nothing;
@@ -227,3 +227,45 @@ def test_auto_extract_is_off_by_default(home):
     seed(home, [("Bob runs a bakery on the corner", [])])
     hook(home, "user-prompt", prompt("I prefer tabs over spaces in Python code."))
     assert [text for text, _ in _facts(home)] == ["Bob runs a bakery on the corner"]
+
+
+def test_the_owners_name_alone_does_not_pull_their_facts(home):
+    """The person the memory belongs to is named in passing all the time ("Mark asked to fix the release script");
+    every such message brought their two most trusted facts (seen 2026-10-30). With self_names their name pulls
+    nothing by itself; a question about them still finds facts by its words. Another person's name still does."""
+    ids = seed(home, [("Mark's long term priority is a calm family life", ["Mark"]),
+                      ("Mark lived in Lisbon before he moved to the coast", ["Mark"]),
+                      ("Masha prefers green tea in the morning", ["Masha"])],
+               'self_names = ["Mark"]\n')
+    passing = "Mark asked to fix the release script tonight and send the changelog to the whole team after the build"
+    assert context(hook(home, "user-prompt", prompt(passing, session="a"))) == ""
+    about = context(hook(home, "user-prompt", prompt("Where did Mark live before he moved?", session="b")))
+    assert f"#{ids[1]}" in about
+    other = context(hook(home, "user-prompt", prompt("Should I invite Masha to the meeting on Friday?", session="c")))
+    assert f"#{ids[2]}" in other
+
+
+def test_self_names_must_be_a_list_of_names(home):
+    home.mkdir(parents=True)
+    (home / "config.toml").write_text('self_names = "Mark"\n', encoding="utf-8")
+    block = context(hook(home, "session-start", {"session_id": "s", "cwd": ""}), "SessionStart")
+    assert "self_names must be a list of names" in block
+
+
+def test_a_state_db_held_by_another_process_still_gives_the_block(home):
+    """Another hook (or a server) holds state.db's write lock for longer than this hook may wait. The turn number and
+    the repeat window are bookkeeping: without them the fact is still recalled, within the deadline. Before, the turn
+    number waited out state.db's 5 s and then failed, and the prompt went without its facts."""
+    ids = seed(home, [("Bob runs a bakery on the corner", [])])
+    assert f"#{ids[0]}" in context(hook(home, "user-prompt", prompt("Who runs the bakery?", session="first")))
+    holder = sqlite3.connect(home / "state.db", isolation_level=None)
+    holder.execute("BEGIN IMMEDIATE")  # another process mid-write, for the whole of this hook
+    try:
+        started = time.monotonic()
+        proc = hook(home, "user-prompt", prompt("Who runs the bakery?", session="second"))
+        elapsed = time.monotonic() - started
+    finally:
+        holder.execute("ROLLBACK")
+        holder.close()
+    assert f"#{ids[0]}" in context(proc)
+    assert elapsed < 8.0, elapsed

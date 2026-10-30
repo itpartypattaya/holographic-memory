@@ -1,25 +1,33 @@
-"""The memory tools the MCP server offers: the plugin's fact_store actions, one tool each, over the engine.
+"""The memory tools the MCP server offers: the fact store's actions, one tool each, over the engine.
 
-The checks are the plugin's: text that is not a fact (an instruction, a credential, markup) is refused by the engine's
+The checks: text that is not a fact (an instruction, a credential, markup) is refused by the engine's
 write screen; a text the person asked to forget, a past version or a copy merged into another fact is not stored
 again as new; a new fact comes back with ``similar`` / ``possible_conflicts`` for the agent to decide on; a name that
 cannot be an entity is listed under ``entities_not_linked`` by position, never quoted. Answers are JSON text; a
 failure nobody meant is named by its kind, never by a message that may quote a fact. With ``embeddings`` on,
-memory_search also finds facts by meaning (``match: "meaning"``), as the plugin's search.
+memory_search also finds facts by meaning (``match: "meaning"``). With ``rerank`` on, the facts
+its words found are rescored (rescore.py) before those by meaning are added after them: what the endpoint did not score
+(beyond rerank_top_k, or not to be sent) keeps its order behind; a failure keeps the order of rerank off. A search
+"as_of" a day is never rescored. memory_export (``export.py``) gives the store as one Markdown page.
+With ``experience`` on, memory_search answers with the receipt of what it offered (``memory_attempt``) and
+memory_experience — listed only then — explains an attempt and records the agent's report of how it turned out
+(``journal.py``).
 
-Not in the bridge (yet): rescoring, export, contradict, the experience journal (task outcomes).
+Not in the bridge (yet): contradict.
 """
 from __future__ import annotations
 
 import json
 import logging
 
+from . import journal
 from .memory import Context, Memory
 
 logger = logging.getLogger("holomem")
 
-_KW_MARK = "keywords: "  # the plugin's marker: keywords live in the indexed tags column after it
+_KW_MARK = "keywords: "  # the marker: keywords live in the indexed tags column after it
 _MAX_KEYWORDS, _MAX_KEYWORD_CHARS, _MAX_LIMIT = 12, 40, 100
+_EXPORT_LIMIT, _EXPORT_MAX = 100, 1000  # memory_export: a page of facts, not a search answer
 
 _ID = {"type": "integer", "description": "The fact id (#id in recalled lines and results)."}
 _ENTITIES = {"type": "array", "items": {"type": "string"},
@@ -29,6 +37,7 @@ _KEYWORDS = {"type": "array", "items": {"type": "string"},
              "description": "Up to 12 words a person might ask with that the text does not contain (synonyms, other "
                             "roots, translations). Never shown in recall."}
 _DAY = {"type": "string", "description": "YYYY-MM-DD, 'today' or 'yesterday'."}
+_DAY_KEYS = ("valid_from", "valid_to", "as_of")  # the arguments that take _DAY (Tools._days)
 _LIMIT = {"type": "integer", "minimum": 1, "maximum": _MAX_LIMIT}
 _CATEGORIES = ("user_pref", "project", "tool", "general")
 
@@ -80,6 +89,14 @@ SCHEMAS = [
          "limit": {"type": "integer", "minimum": 1, "maximum": _MAX_LIMIT}}}},
     {"name": "memory_stats", "description": "What is in the store: counts, categories, origins, the database file.",
      "readOnly": True, "inputSchema": {"type": "object", "properties": {}}},
+    {"name": "memory_export", "description": "The store as one Markdown page for a review: each fact with trust, "
+     "category, names and where it was written, most trusted first; facts merged into them below. Facts recall keeps "
+     "out of prompts are included, marked (withheld from recall). The whole page enters the context (up to 'limit' "
+     "facts of 500 characters each): ask for it only when the person wants to review the memory.", "readOnly": True,
+     "inputSchema": {"type": "object", "properties": {
+         "category": {"type": "string"}, "min_trust": {"type": "number"},
+         "limit": {"type": "integer", "minimum": 1, "maximum": _EXPORT_MAX,
+                   "description": f"Facts on the page (default {_EXPORT_LIMIT})."}}}},
     {"name": "memory_feedback", "description": "Rate a fact after using it: helpful (accurate), unhelpful (outdated "
      "or wrong), or confirmed (the person said again, or agreed, that it is so).",
      "inputSchema": {"type": "object", "properties": {
@@ -117,6 +134,26 @@ SCHEMAS = [
      "one fact, nobody confirmed.", "readOnly": True,
      "inputSchema": {"type": "object", "properties": {
          "status": {"type": "string", "enum": ["all", "established", "provisional"]}, "limit": _LIMIT}}},
+    {"name": "memory_experience", "description": "The task-outcome journal, separate from trust and truth. recent: "
+     "the latest attempts (a recall's 'Memory attempt: <id>', a search's memory_attempt); explain: what an attempt "
+     "offered (fact and version ids, never text) and, with the trace, why a candidate was left out; outcome: your "
+     "report of how the answer that used it turned out (never a confirmation by the person; changes no fact). Revise "
+     "with a new event_id and supersedes=<the active event_id>.",
+     "inputSchema": {"type": "object", "properties": {
+         "action": {"type": "string", "enum": ["recent", "explain", "outcome"]},
+         "attempt_id": {"type": "string"},
+         "event_id": {"type": "string", "description": "A new id of your choosing for this report (1-80 of A-Z a-z "
+                                                       "0-9 _ -); the same id again is a no-op."},
+         "outcome": {"type": "string", "enum": ["useful", "dead_end", "corrected", "unknown"]},
+         "reason": {"type": "string", "enum": ["wrong_entity", "stale_version", "irrelevant", "missing_evidence",
+                                               "answer_error", "other"]},
+         "correction": {"type": "string", "maxLength": 400, "description": "One short line: what was right."},
+         "task": {"type": "string", "maxLength": 160, "description": "A short task label, not the conversation."},
+         "supersedes": {"type": "string"},
+         "correction_refs": {"type": "array", "maxItems": 20, "items": {"type": "object", "properties": {
+             "fact_id": {"type": "integer"}, "version_id": {"type": "integer"}},
+             "required": ["fact_id", "version_id"], "additionalProperties": False}}},
+         "required": ["action"]}},
     {"name": "memory_entity", "description": "Maintain names. alias: one person or thing, two names (name stays, other "
      "becomes its alias; merges them if both exist). rename: other is the new name. delete: names that are not names "
      "(a phrase, a command): the facts stay, text never creates them again. split: two people under one name: the "
@@ -131,6 +168,12 @@ SCHEMAS = [
 ]
 READ_ONLY = {s["name"] for s in SCHEMAS if s.pop("readOnly", False)}
 NAMES = [s["name"] for s in SCHEMAS]
+JOURNAL = "memory_experience"  # listed only with experience on
+
+
+def listed(cfg) -> list[dict]:
+    """The schemas a client is offered: the journal's tool only while it records."""
+    return [s for s in SCHEMAS if s["name"] != JOURNAL or cfg.experience]
 
 
 class Refusal(ValueError):
@@ -138,7 +181,7 @@ class Refusal(ValueError):
 
 
 def keywords(value) -> list[str]:
-    """The plugin's rule: a list of strings or one comma-separated string -> distinct, trimmed (12 of 40 chars)."""
+    """A list of strings or one comma-separated string -> distinct, trimmed (12 of 40 chars)."""
     items = value if isinstance(value, list) else str(value or "").split(",")
     out: list[str] = []
     for item in items:
@@ -199,7 +242,7 @@ class Tools:
         if not isinstance(args, dict):
             return {"error": "arguments must be an object"}, True
         try:
-            return _clean(handler(args)), False
+            return _clean(handler(self._days(args))), False
         except Refusal as exc:
             return {"error": str(exc)}, True
         except NotFound as exc:
@@ -222,6 +265,18 @@ class Tools:
         except Exception as exc:  # noqa: BLE001 - named by kind: SQLite may quote a value in its message
             logger.warning("holomem: %s failed (%s)", name, type(exc).__name__)
             return {"error": f"{name} failed ({type(exc).__name__})"}, True
+
+    def _days(self, a: dict) -> dict:
+        """'today' / 'yesterday' in a date argument, as _DAY promises, made the store's date (its timezone): the
+        engine reads only YYYY-MM-DD. Anything else goes on as given, for the engine to accept or refuse."""
+        words = {k: str(a[k]).strip().lower() for k in _DAY_KEYS if isinstance(a.get(k), str)}
+        if not any(w in ("today", "yesterday") for w in words.values()):
+            return a
+        import datetime
+
+        today = datetime.date.fromisoformat(self.store.today())
+        given = {"today": today, "yesterday": today - datetime.timedelta(days=1)}
+        return {**a, **{k: given[w].isoformat() for k, w in words.items() if w in given}}
 
     def _fact(self, a: dict) -> int:
         try:
@@ -330,12 +385,16 @@ class Tools:
             self.retriever.drop_cached(gone)
             if self.state is not None:
                 self.state.forget_fact(gone)
+        try:  # the engine's triggers took the attempts that offered it: their links go too
+            journal.forget_links(self.memory, self.state)
+        except Exception as exc:  # noqa: BLE001 - a stale link only makes explain say not_recorded
+            logger.warning("holomem: journal links not cleared after a forget (%s)", type(exc).__name__)
         result["hint"] = ("Deleted from the fact store with its history. If the client's own memory (CLAUDE.md, "
                           "MEMORY.md, AGENTS.md) says the same, remove it there too.")
         return result
 
     def memory_merge(self, a: dict) -> dict:
-        """The plugin's merge: keywords given replace the keep's; none given: the keep's own first, then each copy's,
+        """Merge: keywords given replace the keep's; none given: the keep's own first, then each copy's,
         distinct, up to the limit. The tags are joined inside the store's transaction, from what it holds then."""
         keep = self._fact(a)
         given = a.get("from")
@@ -434,7 +493,11 @@ class Tools:
             return found
         limit, meaning = _limit(a), self.memory.meaning_of(query, before_turn=False)
         results = list(self.retriever.search(query, category=category, min_trust=floor, limit=limit, meaning=meaning))
-        if meaning is not None:  # the plugin's splice: by meaning after every fact that holds the words, then those
+        trace = journal.Trace(self.cfg.experience and self.cfg.experience_trace)
+        trace.observe("lexical_candidates", results)
+        if self.memory.rescoring is not None and results:
+            results = self._rescored(query, results)
+        if meaning is not None:  # the splice: by meaning after every fact that holds the words, then those
             from .engine import embeddings  # closer in meaning than anything the words found
 
             words, min_score = list(results), self.memory.embedding.min_score
@@ -452,7 +515,31 @@ class Tools:
                     fact["match"] = "meaning"
                     results.append(fact)
         results = self._with_origins(results)
-        return {"results": results, "count": len(results)}
+        answer: dict = {"results": results, "count": len(results)}
+        attempt = journal.record(self.memory, self.state, self.ctx, "search", results, trace)  # also when empty
+        if attempt:
+            answer["memory_attempt"] = attempt
+        return answer
+
+    def _rescored(self, query: str, results: list[dict]) -> list[dict]:
+        """Rescoring of a search: the facts the words found in the endpoint's order, the ones it did not
+        score behind in theirs; facts that may not be sent are shown, never sent. Any failure: *results* as they are."""
+        from .engine.screen import _sendable
+
+        rescoring = self.memory.rescoring
+        try:
+            positions = [i for i, f in enumerate(results) if _sendable(f.get("content") or "")]
+            ranked = rescoring.scores(self.state, query, [results[i].get("content") or "" for i in positions]) \
+                if positions else None
+            if ranked is None:
+                logger.debug("holomem: rescoring a search: %s", "nothing sendable" if not positions else rescoring.last)
+                return results
+            order = [positions[i] for i, _ in ranked if 0 <= i < len(positions)]
+            scored = set(order)
+            return [results[i] for i in order + [j for j in range(len(results)) if j not in scored]]
+        except Exception as exc:  # noqa: BLE001 - as a failed call: paused, the order of rerank off
+            rescoring.failed(self.state, f"search: {type(exc).__name__}")
+            return results
 
     def memory_probe(self, a: dict) -> dict:
         results = self._with_origins(list(self.retriever.probe(a["entity"], limit=_limit(a),
@@ -530,6 +617,37 @@ class Tools:
             return dict(self.store.delete_entities(names))
         raise Refusal("action must be one of: alias, rename, delete, split")
 
+    def memory_experience(self, a: dict) -> dict:
+        """The task-outcome journal over the bridge's links (journal.py): an attempt is found by its id in this
+        database, whichever session of it recorded the attempt."""
+        if not self.cfg.experience:
+            raise Refusal("the task-outcome journal is off (experience = false in config.toml)")
+        action, store = a.get("action"), self.store
+        if action == "recent":
+            attempts = []
+            for link in (self.state.recent_attempts(self.ctx.client, str(self.memory.path)) if self.state else []):
+                report = store.experience_report(link["attempt_id"], journal.key_of(link))
+                item = {"attempt_id": link["attempt_id"], "kind": report.get("kind"), "created_at": link["created"],
+                        "status": report["status"]}
+                if report["status"] == "ok":
+                    item["emitted"] = [e["fact_id"] for e in report["emitted"]]
+                    active = [o for o in report["outcomes"] if o["active"]]
+                    item["outcome"] = active[0]["outcome"] if active else None
+                attempts.append(item)
+            return {"attempts": attempts, "count": len(attempts), "error_kind": self.memory.journal_error}
+        if action not in ("explain", "outcome"):
+            raise Refusal("action must be one of: recent, explain, outcome")
+        attempt_id = a["attempt_id"]
+        link = journal.link_of(self.memory, self.state, attempt_id)
+        if action == "explain":
+            return store.experience_report(attempt_id, journal.key_of(link)) if link else {"status": "not_recorded"}
+        if link is None:
+            raise Refusal("Attempt unavailable: not recorded in this memory, or forgotten since")
+        return dict(store.record_outcome(attempt_id, a["event_id"], a["outcome"], a["reason"],
+                                         correction=a.get("correction", ""), supersedes=a.get("supersedes"),
+                                         session_key=journal.key_of(link), task=a.get("task", ""),
+                                         correction_refs=a.get("correction_refs")))
+
     def memory_history(self, a: dict) -> dict:
         return dict(self.store.history(self._fact(a)))
 
@@ -538,6 +656,13 @@ class Tools:
                                       limit=_limit(a, 50))
         facts = self._with_origins(list(facts))
         return {"results": facts, "count": len(facts)}
+
+    def memory_export(self, a: dict) -> dict:
+        from .export import TOOL_CHARS, render
+
+        limit = max(1, min(_EXPORT_MAX, int(a.get("limit", _EXPORT_LIMIT))))
+        return render(self.store, category=a.get("category"), min_trust=float(a.get("min_trust", 0.0)), limit=limit,
+                      chars=TOOL_CHARS)
 
     def memory_stats(self, a: dict) -> dict:
         read = self.store.read
@@ -555,13 +680,22 @@ class Tools:
                 "low_trust": read("SELECT COUNT(*) FROM facts WHERE trust_score < ?",
                                   (self.cfg.min_trust_threshold,))[0][0],
                 "origin": counts, "history": self.store.history_counts() or "not set up yet",
-                "search_by_meaning": self._meaning_stats(),
+                "search_by_meaning": self._meaning_stats(), "rescoring": self._rescoring_stats(),
                 "database": str(self.memory.path), "scope": self.cfg.scope}
 
     def _meaning_stats(self) -> dict | str:
         if self.memory.embedder is None:
             return "off"
         return {"endpoint": self.memory.embedder.status(), **self.memory.pending_vectors()}
+
+
+    def _rescoring_stats(self) -> dict | str:
+        rescoring = self.memory.rescoring
+        if rescoring is None:
+            return "off"
+        settings = rescoring.settings
+        return {"model": settings.model, "endpoint": rescoring.status(self.state), "top_k": settings.top_k,
+                "weight": settings.weight, "window": settings.window, "scale": settings.scale}
 
 
 def dumps(answer: dict) -> str:

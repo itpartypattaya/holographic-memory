@@ -3,23 +3,23 @@ what it shows, what it does not, its risks and limits; the format may change whi
 
 The data layer of the map: a dashboard tab or a standalone page renders it; every privacy rule is applied here, so
 the renderers cannot differ on them. The store is opened read-only (``mode=ro``, ``query_only``): nothing is written,
-migrated or created, no model and no network are used. What the provider itself would not show is not shown:
+migrated or created, no model and no network are used. What the engine itself would not show is not shown:
 
 - one store per export (one scope), read in one read transaction; of the night's files (dreaming) the report and the
   approval queue only for the profile store, a merge question only when it names this very store;
 - a forgotten fact is its number and the date, nothing else (its text, keywords and names are gone from the store);
-- a corrected version has no text (it never held); a text the provider's screen keeps out of answers (a credential,
+- a corrected version has no text (it never held); a text the engine's screen keeps out of answers (a credential,
   an instruction to the assistant, hidden markup) is not shown, current or past: the fact is listed under HIDDEN
   with its number and date.
 
-    python -m <package>.memory_map --store PATH [--hermes-home DIR] [--tz ZONE] [--config YAML] [--json]
-    python <plugin dir>/memory_map.py --store PATH ...     (no Hermes core needed)
+    python -m holomem.engine.memory_map --store PATH [--dreaming-home DIR] [--tz ZONE] [--config TOML] [--json]
+    python <engine dir>/memory_map.py --store PATH ...     (the file alone, without the package)
 
-``export_map(store_path, hermes_home=None, tz=None, now=None)`` returns the same dict for a caller in Python."""
+``export_map(store_path, dreaming_home=None, tz=None, now=None)`` returns the same dict for a caller in Python."""
 
 from __future__ import annotations
 
-if __name__ == "__main__" and not __package__:  # run as a file: load the plugin's modules without its __init__
+if __name__ == "__main__" and not __package__:  # run as a file: load the engine's modules without its __init__
     import importlib
     import sys
     import types
@@ -40,6 +40,7 @@ import re
 import sqlite3
 import sys
 import threading
+import tomllib
 from datetime import date, datetime, timedelta, timezone, tzinfo
 from pathlib import Path, PurePosixPath, PureWindowsPath
 
@@ -55,7 +56,7 @@ SCHEMA_VERSION = 1
 TRUST_NORMAL, TRUST_STRONG = 0.45, 0.65
 STALE_DAYS = 60  # review()'s "never recalled" and "unconfirmed inference"
 WEEK_DAYS = 7
-_BIG = 100_000  # "all of them" for the provider's limits
+_BIG = 100_000  # "all of them" for the engine's limits
 _DREAM_FILES = {"proposals": ("cache", "dream-proposals.json"), "report": ("cache", "dream.json"),
                 "queue": ("pending", "memory")}
 _PROPOSAL_ID = re.compile(r"D-\d{1,9}")
@@ -74,15 +75,15 @@ _REVIEW_REASONS = (("low trust", "low_trust"), ("never recalled", "never_recalle
 
 
 class _ReadOnlyStore(MemoryStore):
-    """The provider's store over a read-only connection of its own: the provider's read code (history, origins,
+    """The engine's store over a read-only connection of its own: the store's read code (history, origins,
     entities, review, contradict) runs unchanged, and any write it might attempt fails instead of happening. Not in
     the shared connection registry, never migrated.
 
-    One read transaction from the first read to close(): every query of the export, the provider's included (its
+    One read transaction from the first read to close(): every query of the export, the store's included (its
     _tx() joins an open transaction and never commits it), sees the store at one moment, so a forget or a change
     another process makes meanwhile is either all in the map or not at all (Codex review, 30.10.2026). In WAL mode
-    writers go on meanwhile; in rollback-journal mode (DELETE, what the core keeps on a SQLite it deems
-    WAL-reset-vulnerable) a writer's COMMIT waits until close(), up to its busy timeout (10 s in the provider)."""
+    writers go on meanwhile; in rollback-journal mode (DELETE, what sqlite_util keeps on a SQLite it deems
+    WAL-reset-vulnerable) a writer's COMMIT waits until close(), up to its busy timeout (10 s in MemoryStore)."""
 
     def __init__(self, db_path, tz: tzinfo | None = None) -> None:  # not MemoryStore's: that one opens for writing
         path = Path(db_path).expanduser()
@@ -143,7 +144,7 @@ def _zone(tz) -> tuple[tzinfo, str]:
 
 
 def _screen(text) -> str | None:
-    """Why the provider would keep *text* out of an answer or away from a network call, as a code, or None: the
+    """Why the engine would keep *text* out of an answer or away from a network call, as a code, or None: the
     strictest of its screens (recall's and the sendable one)."""
     value = str(text or "")
     problem = _recall_problem(value)
@@ -370,21 +371,11 @@ _RANKING_DEFAULTS = {"min_trust_threshold": 0.3, "temporal_decay_half_life": 0}
 _TRUE = {"1", "true", "yes", "on"}
 
 
-def _load_yaml(text: str):
-    """config.yaml as Hermes reads it: its own loader (hermes_yaml, ruamel; Hermes does not install PyYAML), else
-    PyYAML outside Hermes. Neither present raises ImportError: the settings are then unknown."""
-    try:
-        from hermes_yaml import safe_load
-    except ImportError:
-        from yaml import safe_load
-    return safe_load(text)
-
-
 def _ranking(config) -> dict:
     """The settings search ranks by: the trust floor, the decay half-life, and whether the reranker (which ignores
-    trust) or search by meaning is on. *config*: the plugin's section as a dict, a config.yaml path, or None (the
-    plugin's defaults). ``source``: defaults | config | absent (no such file: the provider runs on the defaults too) |
-    unreadable (nothing about the order is said then)."""
+    trust) or search by meaning is on. *config*: the settings as a dict, a config.toml path (holomem's,
+    whose top-level keys these are), or None (the defaults). ``source``: defaults | config | absent (no such file: the
+    engine runs on the defaults too) | unreadable (nothing about the order is said then)."""
     source, section = "defaults", {}
     if isinstance(config, dict):
         source, section = "config", config
@@ -394,16 +385,14 @@ def _ranking(config) -> dict:
             source = "absent"
         else:
             try:
-                data = _load_yaml(path.read_text(encoding="utf-8")) or {}
-                plugins = data.get("plugins") if isinstance(data, dict) else None
-                section = (plugins or {}).get("hermes-memory-store") if isinstance(plugins, dict) else None
-                source, section = "config", section if isinstance(section, dict) else {}
-            except Exception:  # noqa: BLE001 - no yaml, or a file it cannot parse: the order is not said
+                data = tomllib.loads(path.read_text(encoding="utf-8"))
+                source, section = "config", data if isinstance(data, dict) else {}
+            except Exception:  # noqa: BLE001 - a file that cannot be read or parsed: the order is not said
                 return {"source": "unreadable", "min_trust": None, "half_life": None, "rerank": None, "meaning": None}
     try:
         min_trust = float(section.get("min_trust_threshold", _RANKING_DEFAULTS["min_trust_threshold"]))
         half_life = int(section.get("temporal_decay_half_life", _RANKING_DEFAULTS["temporal_decay_half_life"]))
-    except (TypeError, ValueError, OverflowError):  # the provider turns memory off for these: nothing to rank
+    except (TypeError, ValueError, OverflowError):  # the settings turn memory off for these: nothing to rank
         return {"source": "unreadable", "min_trust": None, "half_life": None, "rerank": None, "meaning": None}
     flag = lambda key: section.get(key) is True or str(section.get(key, "")).strip().lower() in _TRUE  # noqa: E731
     return {"source": source, "min_trust": min_trust, "half_life": half_life, "rerank": flag("rerank"),
@@ -428,8 +417,8 @@ def _difference(text_a: str, text_b: str, entity_words: set) -> dict:
 # -- the snapshot ---------------------------------------------------------------------------------------------------
 
 class _Snapshot:
-    def __init__(self, store: _ReadOnlyStore, made: datetime, zone_name: str, hermes_home, ranking: dict):
-        self.s, self.made, self.zone_name, self.home, self.ranking = store, made, zone_name, hermes_home, ranking
+    def __init__(self, store: _ReadOnlyStore, made: datetime, zone_name: str, dreaming_home, ranking: dict):
+        self.s, self.made, self.zone_name, self.home, self.ranking = store, made, zone_name, dreaming_home, ranking
         self.today = made.date().isoformat()
         self.week_from = (made.date() - timedelta(days=WEEK_DAYS)).isoformat()
         self.history = "fact_versions" in store.tables and store.history_ready()
@@ -689,7 +678,7 @@ class _Snapshot:
 
     # -- dreaming --
     def _dreaming(self, facts, gone, versions, merged):
-        """(SNAP.dreaming, pending items, night events). Only when the caller names the Hermes home. Whose each piece
+        """(SNAP.dreaming, pending items, night events). Only when the caller names the folder of the night's files. Whose each piece
         is, is checked piece by piece, never inferred from another (Codex review, 30.10.2026): the report (MEMORY.md
         entries, its conflicts, the night's stats) and the approval queue are the profile store's — <home>/memory_store.db
         — and never reach a map of another store; a merge question reaches a map only when it names this very store
@@ -807,7 +796,7 @@ class _Snapshot:
         return out
 
     def _forgotten_text(self, text: str) -> bool:
-        """Does *text* say what a forgotten fact said (the provider's tombstone check)?"""
+        """Does *text* say what a forgotten fact said (the store's tombstone check)?"""
         return bool(self.history and self.s._meta("tombstone_key") and self.s.forgotten_match(text))
 
     def _report_items(self, report, facts, day, invalid) -> list[dict]:
@@ -997,13 +986,13 @@ def _limit(snapshot: dict, max_facts: int | None, max_entities: int | None) -> d
     return snapshot
 
 
-def export_map(store_path, *, hermes_home=None, tz=None, now: datetime | None = None, config=None,
+def export_map(store_path, *, dreaming_home=None, tz=None, now: datetime | None = None, config=None,
                max_facts: int | None = MAX_FACTS, max_entities: int | None = MAX_ENTITIES) -> dict:
     """The memory map of the store at *store_path* as a dict (schema_version, SNAP, ENT, FACTS, CONFLICTS, PENDING,
-    TOMBS, MERGES, HIDDEN, FEED, ATTEMPTS). *hermes_home*: where the dreaming files are (none read without it).
+    TOMBS, MERGES, HIDDEN, FEED, ATTEMPTS). *dreaming_home*: where the dreaming files are (none read without it).
     *tz*: the zone of the snapshot's dates (IANA name or "+07:00"; UTC by default). *now*: the snapshot's moment.
-    *config*: the plugin's settings search ranks by (its config.yaml path, or the plugins.hermes-memory-store section
-    as a dict); None = the plugin's defaults. *max_facts* / *max_entities*: the size limit (None: none; see
+    *config*: the settings search ranks by (a config.toml path, or its keys as a dict); None = the
+    defaults. *max_facts* / *max_entities*: the size limit (None: none; see
     _limit). Read-only; raises FileNotFoundError when there is no store file."""
     for name, value in (("max_facts", max_facts), ("max_entities", max_entities)):
         if value is not None and (not isinstance(value, int) or isinstance(value, bool) or value < 1):
@@ -1013,7 +1002,7 @@ def export_map(store_path, *, hermes_home=None, tz=None, now: datetime | None = 
     made = (made if made.tzinfo else made.replace(tzinfo=timezone.utc)).astimezone(zone)
     store = _ReadOnlyStore(store_path, tz=zone)
     try:
-        snapshot = _Snapshot(store, made, zone_name, hermes_home, _ranking(config)).build()
+        snapshot = _Snapshot(store, made, zone_name, dreaming_home, _ranking(config)).build()
         if not store.in_snapshot():  # something ended the read transaction midway: the reads are not one moment
             raise RuntimeError("memory_map: the read transaction ended before the export did")
         return _limit(snapshot, max_facts, max_entities)
@@ -1024,11 +1013,11 @@ def export_map(store_path, *, hermes_home=None, tz=None, now: datetime | None = 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description="Read-only memory map of one holographic store, as JSON.")
     parser.add_argument("--store", required=True, help="the store file (memory_store.db or a scope's .db)")
-    parser.add_argument("--hermes-home", help="read the dreaming files under this directory (only for its store)")
+    parser.add_argument("--dreaming-home", help="read the dreaming files under this directory (only for its store)")
     parser.add_argument("--tz", help="zone of the dates: an IANA name or +HH:MM (default UTC)")
     parser.add_argument("--now", help="the snapshot's moment, ISO 8601 (default: now)")
-    parser.add_argument("--config", help="Hermes config.yaml: the search settings that order contradictions "
-                                         "(default: the plugin's defaults)")
+    parser.add_argument("--config", help="holomem's config.toml: the search settings that order contradictions "
+                                         "(default: the defaults)")
     parser.add_argument("--max-facts", type=int, default=MAX_FACTS,
                         help=f"at most this many facts in the map (default {MAX_FACTS}; 0: no limit)")
     parser.add_argument("--max-entities", type=int, default=MAX_ENTITIES,
@@ -1037,7 +1026,7 @@ def main(argv=None) -> int:
     args = parser.parse_args(argv)
     try:
         now = datetime.fromisoformat(args.now) if args.now else None
-        data = export_map(args.store, hermes_home=args.hermes_home, tz=args.tz, now=now, config=args.config,
+        data = export_map(args.store, dreaming_home=args.dreaming_home, tz=args.tz, now=now, config=args.config,
                           max_facts=args.max_facts or None, max_entities=args.max_entities or None)
     except FileNotFoundError as exc:
         print(f"memory_map: {exc}", file=sys.stderr)

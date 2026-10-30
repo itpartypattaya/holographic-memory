@@ -8,9 +8,9 @@ import hashlib
 import math
 import struct
 
-np = None  # numpy is loaded on first use (see _numpy): this module is imported from inside the
-# plugin loader's lock while a managed worker starts its reader thread, and a top-level numpy
-# import there deadlocked Kanban workers inside numpy._core._multiarray_umath's create_module.
+np = None  # numpy is loaded on first use (see _numpy): this module may be imported from inside
+# an import lock while another thread starts, and a top-level numpy import there once deadlocked
+# a worker inside numpy._core._multiarray_umath's create_module.
 _TRIED = False  # _numpy() has tried already; np alone cannot say (None is both "not yet" and "missing")
 
 

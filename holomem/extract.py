@@ -1,11 +1,11 @@
-"""Auto-extraction (``auto_extract = true``, off by default): the plugin's rules, applied to the person's prompt.
+"""Auto-extraction (``auto_extract = true``, off by default): sentences of the person's prompt kept as facts.
 
-The plugin stores, at session end, the user's sentences that state a preference or a decision. The bridge applies
-the same patterns (``engine/extract_patterns.py``, copied out of the plugin's provider) to each prompt as the hook
-receives it: there the client hands over exactly what the person typed, while its transcript mixes in instruction
-files, system notes and tool results under the same "user" role. A sentence is skipped when it is a question, too
-short or too long, fails the engine's write screen (instructions, credentials, markup), was forgotten or is a past
-version of a fact, or restates a stored fact. Stored at ``default_trust - 0.1``: unconfirmed, below hand-added facts.
+The user's sentences that state a preference or a decision are stored. The bridge applies the engine's patterns
+(``engine/extract_patterns.py``) to each prompt as the hook receives it: there the client hands over exactly what the
+person typed, while its transcript mixes in instruction files, system notes and tool results under the same "user"
+role. A sentence is skipped when it is a question, too short or too long, fails the engine's write screen
+(instructions, credentials, markup), was forgotten or is a past version of a fact, or restates a stored fact.
+Stored at ``default_trust - 0.1``: unconfirmed, below hand-added facts.
 """
 from __future__ import annotations
 

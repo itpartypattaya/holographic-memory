@@ -1,7 +1,7 @@
 """Fact history (0.8.0): versions with valid time and provenance, the five ways a fact stops being current, and
 forgetting for good. Mixed into MemoryStore; docs/history.md is the contract.
 
-``facts`` stays the projection of current versions (no new column, so older versions of the plugin and tools that
+``facts`` stays the projection of current versions (no new column, so older versions of the engine and tools that
 read it keep working); ``fact_versions`` holds every version, the current one included, with its own FTS index that
 only ``as_of`` reads."""
 
@@ -257,7 +257,7 @@ class HistoryMixin:
     """The history half of MemoryStore. Expects _conn, _tx, _one, _write, _meta, _set_meta, _entry, default_trust, tz and the
     fact-row helpers of MemoryStore."""
 
-    tz = None  # tzinfo of Hermes's configured timezone; None = UTC
+    tz = None  # tzinfo of the configured timezone; None = UTC
 
     # -- clocks ----------------------------------------------------------------------------------------------------
 
@@ -269,7 +269,7 @@ class HistoryMixin:
         return datetime.now(self.tz or timezone.utc).date().isoformat()
 
     def today(self) -> str:
-        """Today in Hermes's timezone: the latest date a fact's history accepts (parse_day)."""
+        """Today in the configured timezone: the latest date a fact's history accepts (parse_day)."""
         return self._today()
 
     def _local_day(self, timestamp) -> str:
@@ -307,7 +307,7 @@ class HistoryMixin:
         found = self._meta("history_schema")
         if found is not None and found.strip().isdigit() and int(found) > HISTORY_SCHEMA_VERSION:
             raise HistoryTooNew(f"this database was written by a newer holographic (history schema {found}, this "
-                                f"version knows {HISTORY_SCHEMA_VERSION}): update the plugin; not opened for writing")
+                                f"version knows {HISTORY_SCHEMA_VERSION}): update holomem; not opened for writing")
         self._tombstone_key()
         self._reconcile_history()
         # The mark says what the file holds, not who opened it: a file without merges keeps 1 (an older release
@@ -316,7 +316,7 @@ class HistoryMixin:
             self._set_meta("history_schema", str(_HISTORY_SCHEMA_BASE))
 
     def _reconcile_history(self) -> None:
-        """Bring the versions in line with ``facts`` after an older version of the plugin wrote the file (see
+        """Bring the versions in line with ``facts`` after an older version of the engine wrote the file (see
         docs/history.md, Migration). Three indexed queries; nothing to do is the normal case. 0.19.0: a keep an older
         release forgot (a tombstone, or neither a row nor versions) takes its merged copies with it (_reconcile_merges)."""
         missing = self._conn.execute(
@@ -756,7 +756,7 @@ class HistoryMixin:
         current version is closed as `merged` (valid time untouched; as_of clips it at the merge date), a fact_merges
         row says where it went, its entity links move to keep, its row leaves the current projection (with its FTS
         entry, vector and bank), its history and confirmations stay under its own id. keep: its own trust, the
-        counts of the group added (an aggregate of the group's past), *tags* when given (the provider's keyword
+        counts of the group added (an aggregate of the group's past), *tags* when given (the caller's keyword
         union), origin and category untouched. Copies merged earlier into one of the *from_ids* are rebound to
         keep (no chains, no cycles). One transaction: an error on any copy leaves nothing written. *expect*
         ({fact_id: version_id}): the current version of each named participant must be that one (ChangedSince
@@ -930,7 +930,7 @@ class HistoryMixin:
             if self._conn.in_transaction or mark is None:
                 return mark is None
             # Without waiting on another process (busy timeout 0 for every statement here, as the recall counts do;
-            # restored last): a reader blocks the checkpoint for as long as it reads, every provider operation waits
+            # restored last): a reader blocks the checkpoint for as long as it reads, every store operation waits
             # behind a forget, and a receipt write runs this on the search path, so "pending" must come back at once
             # rather than after the 10 s timeout — the closing checkpoint too (Codex review 2026-10-30).
             timeout = self._conn.execute("PRAGMA busy_timeout").fetchone()[0]

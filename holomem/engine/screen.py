@@ -1,8 +1,7 @@
 """The screen: what may not be stored, recalled or sent. Credentials (a key, token, password or PIN with its
-value), instructions aimed at the assistant, and the sentence rules auto_extract uses. Stateless; the provider
-(__init__.py) applies it and re-exports the names its tests read from it. hermes-dreaming vendors part of this
-file (tools/vendor_screen.py: what _recall_problem and _secret_in reach), so its definitions stay plain
-top-level ones and need only re and unicodedata."""
+value), instructions aimed at the assistant, and the sentence rules auto_extract uses. Stateless; the store, recall
+and the tools apply it. Its definitions stay plain top-level ones and need only re and unicodedata, so part of it
+(what _recall_problem and _secret_in reach) can be copied on its own."""
 
 from __future__ import annotations
 
@@ -41,7 +40,7 @@ def _alternatives(latin: str, other: str) -> str:
     return r"(?:" + _EDGE_START + r"(?:" + latin + r")" + _EDGE_END + r"|" + other + r")"
 
 
-# The screens below speak every language the plugin matches words in: English, Russian, Chinese, Japanese, Korean,
+# The screens below speak every language the engine matches words in: English, Russian, Chinese, Japanese, Korean,
 # Thai, Spanish, French, Portuguese, Italian, German, Dutch, Polish, Turkish, Indonesian, Hindi, Arabic and Bengali
 # (0.15.1; English and Russian only before, Chinese from the first fix of 0.15.1).
 # Classic injection phrasing only: "ignore previous instructions", not "Anton asks me to ignore style rules in drafts".
@@ -402,7 +401,7 @@ _RE_DECIMAL = re.compile(r"[$€£¥₽฿]?\d+[.,]\d+[$€£¥₽฿%]?")
 # A date is when, not which: "password changed: 2026-10-15", "пароль сменили: 15.10.2026" (0.15.1).
 _RE_DATE = re.compile(r"\d{1,4}[./-]\d{1,2}[./-]\d{1,4}")
 # A link or a file path says where, not what: "API key docs: https://platform.openai.com/docs", "токены лежат:
-# ~/.hermes/.env" (0.15.1, measured on a live store). A link with a login ("https://user:pass@host") or a query
+# ~/.agent/.env" (0.15.1, measured on a live store). A link with a login ("https://user:pass@host") or a query
 # ("?key=…") is still a value, and a token inside a link is caught by its own shape (_RE_TOKEN_SHAPE). A path has
 # two parts or starts at "~" or ".": "/Sunshine123" may be the password itself (review 2026-10-16).
 _RE_POINTER = re.compile(r"https?://[^\s@?]+|(?:~|\.{1,2})/[^\s@?:]*|/[^\s/@?:]+/[^\s@?:]*"
@@ -440,7 +439,7 @@ _RE_PIN_VALUE = re.compile(r"\d+(?:-\d+)*")
 
 # Long texts (0.22.1). The case-blind patterns above (_RE_CREDENTIALS, _RE_EXFILTRATION, _RE_INJECTION) give the regex
 # engine no character to skip to — each starts with a lookbehind or a word whose case is not known — so it tried every
-# alternative at every position: a megabyte of Russian prose took 17 s in hermes-dreaming, which screens each message
+# alternative at every position: a megabyte of Russian prose took 17 s in a night job that screens each message
 # of its window every night. Now a pattern is tried only where one of its words can start. Those places are found in a
 # lower-case copy of the text (_folded) by one case-sensitive pattern of the words' starts (_CREDENTIAL_STARTS,
 # _EXFILTRATION_STARTS, _INJECTION_STARTS), which the engine does skip to; there the pattern itself decides, on the
@@ -529,8 +528,8 @@ def _run_start(first: str, anchors) -> re.Pattern:
 _ENV_ANCHORS = ("KEY", "TOKEN", "SECRET", "PASS", "PWD", "CREDENTIAL", "HASH", "SESSION", "DSN", "AK", "SK", "WEBHOOK")
 _RE_ENV_START = _run_start(r"[A-Z]", _ENV_ANCHORS)
 # What a credential word (_CREDENTIAL_WORD) can start with, folded; the names of _SECRET_ENV_NAMES by their first five
-# letters (a generator, not a set comprehension: Python 3.12 inlines that into the module, and hermes-dreaming's check
-# of its copy reads the loop variable as a name the copy must define).
+# letters (a generator, not a set comprehension: Python 3.12 inlines that into the module, and a check
+# of a copy of this file reads the loop variable as a name the copy must define).
 _CREDENTIAL_STARTS = (
     # en
     "pass", "pwd", "pin", "api", "access", "auth", "bearer", "refresh", "secret", "token", "otp", "2fa ",
@@ -795,7 +794,7 @@ def _names_a_thing(value: str, folders: bool = False) -> bool:
     """A file, a host or a versioned package, not a secret (see _RE_FILE_NAME); a possessive is off. A file name with
     "@" in it, or with a capital and a digit, is shaped like a password ("password-P@ssw0rd2026.txt",
     "password-Secret2026.conf"), and an e-mail address after "password-" may be a login (review 0.17.2, Antigravity).
-    *folders*: a path that ends in "/" or "\\" names a folder, held to the same shape ("~/.hermes/token-saver-ccr/";
+    *folders*: a path that ends in "/" or "\\" names a folder, held to the same shape ("~/.agent/token-saver-ccr/";
     0.17.4, issue #6) — only after "word-", where the word is the start of the name."""
     value = re.sub(r"`?['’]s$", "", _value(value)).strip(_VALUE_EDGE)
     if _RE_FILE_NAME.fullmatch(value) or (folders and _RE_FOLDER_NAME.fullmatch(value)):

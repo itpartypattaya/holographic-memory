@@ -5,9 +5,16 @@ Nothing but protocol messages goes to stdout. The store opens on the first tool 
 so a call costs milliseconds after the first. Which database: the config's scope, with the project taken from
 CLAUDE_PROJECT_DIR (set by Claude Code) or the server's working directory.
 
-With ``embeddings`` on, a background thread makes the vectors facts are missing (the plugin's catch-up after a turn):
+With ``embeddings`` on, a background thread makes the vectors facts are missing (a catch-up after each turn):
 once the session starts, again after every write, and every few minutes for facts other sessions stored. It holds the
 server's lock only while it reads or writes the store, never while a request is out.
+
+With ``rerank`` on, memory_search and memory_recall rescore their facts (rescore.py); the call's own thread loads
+nothing new: the HTTP, TLS and socket modules are loaded on the main thread before stdin is read (``preload``).
+
+The task-outcome journal (``experience``): memory_experience is listed only while it is on; whenever the store opens,
+the journal's retention runs (also with it off), and memory_recall takes the same deadline as a hook
+(``hook_deadline_seconds``, counted from the call) for its receipt.
 """
 from __future__ import annotations
 
@@ -20,8 +27,8 @@ import threading
 from . import __version__, config
 from .hooks import answer
 from .memory import Context, open_memory
-from .recall import recall, trivial
-from .tools import NAMES, READ_ONLY, SCHEMAS, Tools, dumps
+from .recall import Budget, recall, trivial
+from .tools import NAMES, READ_ONLY, Tools, dumps, listed
 
 # For a UserPromptSubmit hook of type mcp_tool (Claude Code: input {"prompt": "${prompt}", "session_id":
 # "${session_id}", "cwd": "${cwd}"}): its text is the hook's JSON answer, read like a command hook's stdout.
@@ -62,6 +69,9 @@ class Server:
 
             self.state = State(self.cfg.state_path)
             self.tools = Tools(self.memory, self.ctx, self.state)
+            from .journal import prune
+
+            prune(self.memory)
         return self.tools
 
     def start_vectors(self) -> None:
@@ -73,10 +83,7 @@ class Server:
         agent's next tool call."""
         if self.cfg.problems or not self.cfg.embeddings or self._vectors is not None:
             return
-        import http.client  # noqa: F401 - loaded now, see above
-        import socket  # noqa: F401
-        import ssl  # noqa: F401
-
+        self.preload()
         try:
             with self.lock:
                 self._tools()
@@ -85,6 +92,20 @@ class Server:
             logger.warning("holomem: the store could not open (%s)", type(exc).__name__)
         self._vectors = threading.Thread(target=self._vectors_loop, name="holomem-vectors", daemon=True)
         self._vectors.start()
+
+    def preload(self) -> None:
+        """The modules a request's thread uses, loaded on the main thread (see start_vectors): with embeddings or rerank
+        on. A rescoring call runs on a thread of the engine's while the main thread waits for it."""
+        if self.cfg.problems or not (self.cfg.embeddings or self.cfg.rerank):
+            return
+        import http.client  # noqa: F401 - loaded now, see start_vectors
+        import select  # noqa: F401
+        import socket  # noqa: F401
+        import ssl  # noqa: F401
+        import urllib.request  # noqa: F401
+
+        if self.cfg.rerank:
+            from .engine import net, rerank  # noqa: F401
 
     def _vectors_loop(self) -> None:
         while not self._stop.is_set():
@@ -138,7 +159,7 @@ class Server:
             return self._ok(msg_id, {"tools": [
                 {**schema, "annotations": {"readOnlyHint": schema["name"] in READ_ONLY,
                                            "destructiveHint": schema["name"] == "memory_forget",
-                                           "openWorldHint": False}} for schema in (*SCHEMAS, RECALL)]})
+                                           "openWorldHint": False}} for schema in (*listed(self.cfg), RECALL)]})
         if method == "tools/call":
             name, args = params.get("name"), params.get("arguments") or {}
             if name == RECALL["name"]:  # never an error: a failing hook must not stand in the prompt's way
@@ -156,6 +177,7 @@ class Server:
     def _recall(self, args: dict) -> str:
         """The UserPromptSubmit hook's answer, computed in this warm process (a hook of type mcp_tool): the same gates
         and recall as ``holomem hook user-prompt``, without starting Python, numpy and the store for each prompt."""
+        budget = Budget.seconds(self.cfg.hook_deadline_seconds)
         prompt = args.get("prompt")
         if not isinstance(prompt, str) or trivial(prompt) or self.cfg.problems:
             return ""
@@ -168,7 +190,7 @@ class Server:
             ctx = Context(client=self.ctx.client, session_id=str(args.get("session_id") or ""),
                           cwd=str(args.get("cwd") or self.ctx.cwd))
             with self.lock:
-                return answer("user-prompt", recall(self.memory, self.state, ctx, prompt))
+                return answer("user-prompt", recall(self.memory, self.state, ctx, prompt, budget))
         except Exception as exc:  # noqa: BLE001 - logged by kind; the prompt goes on without memory
             logger.warning("holomem: memory_recall failed (%s)", type(exc).__name__)
             return ""
@@ -200,6 +222,7 @@ def serve(client: str, stdin=None, stdout=None) -> int:
     stdout = stdout or sys.stdout.buffer
     logging.basicConfig(stream=sys.stderr, level=logging.WARNING, format="%(levelname)s %(message)s")
     server = Server(client)
+    server.preload()
     server.start_vectors()
     try:
         for raw in stdin:

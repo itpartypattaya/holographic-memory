@@ -1,6 +1,6 @@
 """Opening the fact store for a session: which database (config scope), the engine's store and retriever, and, with
 ``embeddings`` on, the endpoint of search by meaning (the engine's Embedder; the key from ``$HOLOMEM_HOME/.env`` or the
-environment)."""
+environment), and with ``rerank`` on the rescoring endpoint (rescore.py)."""
 from __future__ import annotations
 
 import hashlib
@@ -34,7 +34,7 @@ class Context:
         return project_key(project_root(Path(self.cwd))) if self.cwd else ""
 
     def source(self, via: str, origin: str = "") -> dict:
-        """Where a version is written, in the plugin's source shape: the client as the platform, the project as the
+        """Where a version is written, in the engine's source shape: the client as the platform, the project as the
         chat (so recall_source can say "this project" / "another project"), the client's session."""
         return {"via": via, "platform": self.client, "chat_type": "project" if self.cwd else "", "chat_id": self.project,
                 "thread_id": "", "session_id": self.session_id, "user_id": "", "user_name": "", "origin": origin}
@@ -72,12 +72,19 @@ class Memory:
         from .engine.store import MemoryStore
 
         self.cfg, self.path = cfg, db_path
+        self.journal_error = ""  # the last receipt failure, by kind (memory_experience recent)
         self.store = MemoryStore(db_path, default_trust=cfg.default_trust, hrr_dim=cfg.hrr_dim)
         self.retriever = FactRetriever(self.store, temporal_decay_half_life=cfg.temporal_decay_half_life,
                                        hrr_weight=cfg.hrr_weight, hrr_dim=cfg.hrr_dim)
         self.embedding = embeddings.settings_from(cfg.embedding_config())
         self.embedder = embeddings.Embedder(self.embedding, environ=environ(cfg)) if self.embedding else None
-        if self.embedding is None:  # off: no vector made by an outside model stays in the file (as the plugin)
+        if cfg.rerank:
+            from .rescore import Rescoring
+
+            self.rescoring = Rescoring(cfg.rerank_config())
+        else:
+            self.rescoring = None
+        if self.embedding is None:  # off: no vector made by an outside model stays in the file
             try:
                 dropped = self.store.drop_vectors()
                 if dropped:
@@ -119,7 +126,7 @@ class Memory:
 
     def catch_up(self, budget: float, *, lock=None, stop=None) -> int:
         """Vectors for facts that have none (or whose text changed): requests until *budget* seconds are spent or
-        nothing waits, each as many facts as the endpoint's measured speed fits (the plugin's catch-up). Facts recall
+        nothing waits, each as many facts as the endpoint's measured speed fits (a catch-up). Facts recall
         would not inject, or that look secret, are never sent. *lock* (the MCP server's): held while the store is read
         or written, never during a request; *stop* (an Event): set when the store is closing, checked under the lock.
         Returns how many vectors were stored."""
@@ -173,5 +180,5 @@ def open_memory(cfg: Config, ctx: Context) -> Memory | None:
 
 
 def revision(fact: dict) -> tuple[int, str]:
-    """(fact_id, content hash): a reworded fact is a new revision even within the same second (as the plugin)."""
+    """(fact_id, content hash): a reworded fact is a new revision even within the same second."""
     return int(fact["fact_id"]), hashlib.sha1((fact.get("content") or "").encode()).hexdigest()[:12]

@@ -131,3 +131,35 @@ def test_review_points_a_near_duplicate_to_merge(mcp):
     assert "memory_merge" in review["hint"]
     found, _ = mcp.call("memory_search", query="bakery opens seven")
     assert {r["fact_id"] for r in found["results"]} == {first, second}
+
+
+def test_dates_take_today_and_yesterday_as_the_tools_promise(mcp):
+    """The tools' schema says a date is "YYYY-MM-DD, 'today' or 'yesterday'"; an agent that believes it must not get
+    an error on its first write (seen 2026-10-30: valid_from "today" was refused). Any case, spaces around."""
+    import datetime
+
+    today = datetime.date.today()
+    yesterday, earlier = today - datetime.timedelta(days=1), (today - datetime.timedelta(days=3)).isoformat()
+
+    def versions(fact_id):
+        return mcp.call("memory_history", fact_id=fact_id)[0]["versions"]
+
+    added, is_error = mcp.call("memory_add", content="Robert started a pottery course", valid_from="today",
+                               origin="said")
+    assert not is_error, added
+    assert versions(added["fact_id"])[-1]["valid_from"] == today.isoformat()
+
+    moved = add(mcp, "Lena lives in Lisbon", valid_from=earlier)
+    changed, is_error = mcp.call("memory_change", fact_id=moved, content="Lena lives in Porto", valid_from=" Today ")
+    assert not is_error, changed
+    assert versions(moved)[-1]["valid_from"] == today.isoformat()
+
+    ended = add(mcp, "Mark rents a flat on the river", valid_from=earlier)
+    answer, is_error = mcp.call("memory_end", fact_id=ended, valid_to="YESTERDAY")
+    assert not is_error, answer
+    assert versions(ended)[-1]["valid_to"] == yesterday.isoformat()
+
+    found, is_error = mcp.call("memory_search", query="pottery course", as_of="today")
+    assert not is_error and [r["fact_id"] for r in found["results"]] == [added["fact_id"]]
+    refused, is_error = mcp.call("memory_add", content="Robert likes green tea", valid_from="tomorrow", origin="said")
+    assert is_error and "YYYY-MM-DD" in refused["error"]

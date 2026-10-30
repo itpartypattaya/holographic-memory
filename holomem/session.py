@@ -1,7 +1,7 @@
 """The block a session starts with (SessionStart hook): what the memory is and how to use its tools.
 
 It carries no live numbers: it sits at the top of the context, and a fact count that changes with every stored fact
-would break the prompt cache's longest identical prefix at every new session (as the plugin's system_prompt_block).
+would break the prompt cache's longest identical prefix at every new session.
 Empty / not empty flips once per store. The wording is statements, not orders: both clients treat injected
 imperatives with suspicion.
 """
@@ -42,6 +42,12 @@ def block(cfg: Config, memory: Memory | None, *, scoped_out: bool = False) -> st
         "memory_forget. Two facts that say the same thing become one with memory_merge.",
         "- memory_feedback rates a recalled fact (#id) helpful or unhelpful, or records that the person confirmed it.",
     ]
+    if cfg.experience:  # fixed per setting: the block stays byte-stable across sessions
+        lines.append("- The person corrects or rejects an answer that used recalled facts: memory_experience outcome "
+                     "{attempt_id: the Memory attempt id, event_id: a new one, outcome: corrected or dead_end, reason, "
+                     "correction?: one short line}; useful (reason other) only when they say it was right. Not every "
+                     "turn. It is your report, not their confirmation, and changes no fact: a wrong fact still needs "
+                     "memory_change or memory_correct, with their say-so.")
     if cfg.scope == "project":
         lines.append("- Facts are kept per project: what is stored here is not recalled in another project.")
     return TITLE + "\n" + "\n".join(lines)

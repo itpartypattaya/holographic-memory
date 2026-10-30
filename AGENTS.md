@@ -13,15 +13,12 @@
 
 ## Проект
 
-HANDOFF.md обновлять в каждой сессии, в той же сессии, что и правки (файл локальный, в `.gitignore`, как в плагине).
+HANDOFF.md обновлять в каждой сессии, в той же сессии, что и правки (файл локальный, в `.gitignore`).
 `AGENTS.md` (Codex) — копия этого файла: правка в одном переносится в другой в том же коммите.
 
-- Что это: мост, который ставит движок памяти `hermes-plugin-holographic` в Claude Code и Codex CLI (хуки + MCP-сервер).
-  План — `plans/` (локально) и `Documents\hermes-plugin-holographic\plans\2026-10-30-holo-for-claude-code-codex.md`.
-- `holomem/engine/` — копия движка плагина **байт в байт** из релизного тега (`tools/sync_engine.py`, манифест
-  `ENGINE.json`). Здесь не править: исправление идёт в плагин, сюда приходит со следующим тегом
-  (`python tools/sync_engine.py --repo ../hermes-plugin-holographic --tag vX.Y.Z`). Единственный свой файл там —
-  сгенерированный `__init__.py`.
-- Чего движку не хватает вне Hermes, даёт `holomem/compat.py` (заглушки трёх модулей ядра, только если их нет).
+- Что это: универсальная долговременная память для агентов — движок голографической памяти в Claude Code и Codex CLI
+  (хуки + MCP-сервер). План — `plans/` (локально).
+- `holomem/engine/` — движок, собственный код этого репозитория: правится здесь, поведение держат тесты `tests/engine/`.
+  Файлы лицензий (`holomem/engine/LICENSE`, `holomem/engine/LICENSES/`) не трогать.
 - Тесты: `uv run --no-project --python 3.12 --with pytest --with numpy --with snowballstemmer python -m pytest -q
-  --basetemp=<scratchpad> --override-ini=tmp_path_retention_policy=failed`; проверка копии — `python tools/sync_engine.py --check`.
+  --basetemp=<scratchpad> --override-ini=tmp_path_retention_policy=failed`.

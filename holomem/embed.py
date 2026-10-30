@@ -1,7 +1,7 @@
 """holomem embed [--seconds N]: make the vectors of search by meaning now (after an import, or to fill a store at once).
 
 The MCP server does this in the background during a session; this command does it in one go, within *N* seconds. Facts
-recall would not inject, or that look secret, are never sent (the plugin's rule).
+recall would not inject, or that look secret, are never sent (the engine's rule).
 """
 from __future__ import annotations
 

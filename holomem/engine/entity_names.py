@@ -60,7 +60,7 @@ def fold(text):
 
 def entity_key(name: str) -> str:
     """Identity key of an entity name: NFKC, casefold, hyphens/underscores as spaces, whitespace collapsed, edge
-    punctuation stripped. "Hermes Agent", "hermes-agent" and "HERMES  AGENT" are one entity; "coop" and "co-op" are
+    punctuation stripped. "Acme Agent", "acme-agent" and "ACME  AGENT" are one entity; "coop" and "co-op" are
     not merged into each other (a hyphen becomes a space, it is not deleted)."""
     text = " ".join(unicodedata.normalize("NFKC", name or "").casefold().replace("-", " ").replace("_", " ")
                     .replace("ё", "е").split())  # Семён is Семен (0.16.1)

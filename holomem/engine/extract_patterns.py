@@ -1,5 +1,4 @@
-"""Auto-extraction patterns, copied by tools/sync_engine.py out of the provider (__init__.py) of itpartypattaya/hermes-plugin-holographic v0.25.2:
-the source text of its _EXTRACT_CATEGORIES assignment, exactly. Do not edit: change the plugin."""
+"""Auto-extraction patterns: the sentences of a turn that are worth keeping as facts, by category (holomem.extract)."""
 
 import re
 
@@ -14,7 +13,7 @@ _EXTRACT_CATEGORIES = (
       re.compile(r'\bI\s+(?:always|never|usually)\s+\S', re.IGNORECASE),
       re.compile(r'(?:^|\s)я\s+(?:предпочитаю|люблю|использую|пользуюсь|обычно|всегда|никогда|не\s+ем|не\s+пью)\s+\S', re.IGNORECASE),
       re.compile(r'(?:^|\s)мо[йяеи]\s+любим\w+\s+\S', re.IGNORECASE),
-      # Chinese, Traditional and Simplified (after itpartypattaya/hermes-plugin-holographic#2 by au61987ai-code). The
+      # Chinese, Traditional and Simplified (after a proposal by au61987ai-code, issue #2). The
       # sentence must open with the preference — "I" or no subject — so "你喜歡什麼" (what do YOU like) and "他喜歡吃辣"
       # (HE likes spicy food) are not the user's; "不用" (no need) and "我覺得 / 以我來看" (passing opinions) are left out.
       re.compile(r'^(?:我|本人)?(?:也|還是|还是|一直|通常|比較|比较|較|较|更)?'

@@ -4,6 +4,8 @@ Every key is optional. A value that is not of its kind, outside its set, or a fi
 (``problems``): the hooks then recall nothing and the tools say why. The reason names the key and what it must be,
 never the value: a key or token pasted into the wrong line must not reach a prompt or a log. A key the bridge does
 not know is a warning (``warnings``): a typo would otherwise leave its setting at the default without a word.
+``rerank_url`` holding credentials (``user:pass@``), a query or a fragment is a problem too: the engine would keep them
+in the address it calls, and the bridge never stores or shows an address.
 """
 from __future__ import annotations
 
@@ -12,13 +14,14 @@ import os
 import re
 import sys
 import tomllib
+import urllib.parse
 from dataclasses import dataclass, field
 from pathlib import Path
 
-ENV_HOME = "HOLOMEM_HOME"
+from .engine.home import ENV_HOME, home  # noqa: F401 - ENV_HOME re-exported for callers of the settings
 
-# key -> (default, kind, allowed): kind float/int/bool/str/text/path; allowed = a set of strings or (low, high) for
-# numbers; str is a choice (lower-cased), text is kept as written (an address, a model name)
+# key -> (default, kind, allowed): kind float/int/bool/str/text/path/names; allowed = a set of strings or (low, high)
+# for numbers; str is a choice (lower-cased), text is kept as written (an address, a model name), names a list of them
 _KEYS: dict[str, tuple] = {
     "db_path": ("", "path", None),
     "scope": ("global", "str", {"global", "project"}),
@@ -35,7 +38,12 @@ _KEYS: dict[str, tuple] = {
     "auto_extract": (False, "bool", None),
     "store_policy": ("ask", "str", {"ask", "proactive"}),
     "hook_deadline_seconds": (8.0, "float", (0.5, 25.0)),
-    # search by meaning (ONLINE when on): the plugin's embedding_* keys, read by the engine (embeddings.Settings)
+    # the names of the person the memory belongs to: named in passing all the time, they pull no facts by name alone
+    "self_names": ((), "names", None),
+    # the task-outcome journal (journal.py): receipts of what recall and search offered, outcomes the agent reports
+    "experience": (False, "bool", None),
+    "experience_trace": (False, "bool", None),
+    # search by meaning (ONLINE when on): the embedding_* keys, read by the engine (embeddings.Settings)
     "embeddings": (False, "bool", None),
     "embedding_url": ("https://api.openai.com/v1", "text", None),
     "embedding_model": ("text-embedding-3-small", "text", None),
@@ -46,6 +54,15 @@ _KEYS: dict[str, tuple] = {
     "embedding_prefetch_facts": (1, "int", (0, 3)),
     "embedding_weight": (0.3, "float", (0.0, 0.8)),
     "embedding_space": ("", "text", None),
+    # rescoring by a cross-encoder (rescore.py): the rerank_* keys, read by the engine (rerank.Settings)
+    "rerank": (False, "bool", None),
+    "rerank_url": ("http://127.0.0.1:8080/v1/rerank", "text", None),
+    "rerank_model": ("local-reranker", "text", None),
+    "rerank_top_k": (15, "int", (1, 1000)),  # 40 took ~4.6 s through a tunnel to a 2-thread CPU server
+    "rerank_weight": (0.0, "float", (0.0, 1.0)),
+    "rerank_window": (0.05, "float", (0.0, 1.0)),
+    "rerank_scale": ("logit", "str", {"logit", "unit"}),
+    "rerank_timeout": (3.0, "float", (0.5, 10.0)),
 }
 
 
@@ -67,6 +84,9 @@ class Config:
     auto_extract: bool = False
     store_policy: str = "ask"
     hook_deadline_seconds: float = 8.0
+    self_names: tuple = ()
+    experience: bool = False
+    experience_trace: bool = False
     embeddings: bool = False
     embedding_url: str = "https://api.openai.com/v1"
     embedding_model: str = "text-embedding-3-small"
@@ -77,6 +97,14 @@ class Config:
     embedding_prefetch_facts: int = 1
     embedding_weight: float = 0.3
     embedding_space: str = ""
+    rerank: bool = False
+    rerank_url: str = "http://127.0.0.1:8080/v1/rerank"
+    rerank_model: str = "local-reranker"
+    rerank_top_k: int = 15
+    rerank_weight: float = 0.0
+    rerank_window: float = 0.05
+    rerank_scale: str = "logit"
+    rerank_timeout: float = 3.0
     problems: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
 
@@ -96,9 +124,15 @@ class Config:
         return self.home / ".env"
 
     def embedding_config(self) -> dict:
-        """The plugin's config keys of search by meaning, as the engine's embeddings.settings_from reads them."""
+        """The config keys of search by meaning, as the engine's embeddings.settings_from reads them."""
         keys = {key: getattr(self, key) for key in _KEYS if key.startswith("embedding")}
         return {k: v for k, v in keys.items() if v is not None and v != ""}
+
+    def rerank_config(self) -> dict:
+        """The config keys of rescoring, as the engine's rerank.settings_from reads them (with the embeddings
+        switch and timeout: the engine keeps the two calls of one turn within its 7.5 s together)."""
+        keys = {key: getattr(self, key) for key in _KEYS if key.startswith("rerank")}
+        return {**keys, "embeddings": self.embeddings, "embedding_timeout": self.embedding_timeout}
 
     def database_for(self, cwd: str | Path | None) -> Path | None:
         """The fact store for a session started in *cwd*: the one database in global scope; in project scope one per
@@ -109,11 +143,6 @@ class Config:
             return None
         root = project_root(Path(cwd))
         return self.home / "projects" / f"{project_key(root)}.db"
-
-
-def home() -> Path:
-    raw = os.environ.get(ENV_HOME, "").strip()
-    return Path(raw).expanduser() if raw else Path.home() / ".holographic"
 
 
 def project_root(path: Path) -> Path:
@@ -159,6 +188,10 @@ def _coerce(key: str, value, kind: str, allowed):
         if not low <= number <= high:
             return None, f"{key} must be between {low} and {high}"
         return number, None
+    if kind == "names":
+        if not isinstance(value, list) or not all(isinstance(v, str) and 0 < len(v.strip()) <= 80 for v in value):
+            return None, f"{key} must be a list of names"
+        return tuple(v.strip() for v in value), None
     if not isinstance(value, str):
         return None, f"{key} must be a string"
     if kind == "path":
@@ -169,6 +202,21 @@ def _coerce(key: str, value, kind: str, allowed):
     if allowed and text not in allowed:
         return None, f"{key} must be one of: {', '.join(sorted(allowed))}"
     return text, None
+
+
+def _url_problem(key: str, value: str) -> str | None:
+    """A rerank_url that carries credentials, a query or a fragment: named by the key, never shown."""
+    try:
+        parts = urllib.parse.urlsplit(value)
+        userinfo = "@" in parts.netloc or parts.username is not None or parts.password is not None
+    except ValueError:
+        return f"{key} is not a valid address"
+    if userinfo or parts.query or parts.fragment or "?" in value or "#" in value:
+        return f"{key} must not carry credentials or a query"
+    return None
+
+
+_CHECKS = {"rerank_url": _url_problem}
 
 
 def load(path: Path | None = None) -> Config:
@@ -191,6 +239,8 @@ def load(path: Path | None = None) -> Config:
             continue
         default, kind, allowed = _KEYS[key]
         coerced, problem = _coerce(key, value, kind, allowed)
+        if not problem and key in _CHECKS:
+            problem = _CHECKS[key](key, coerced)
         if problem:
             problems.append(problem)
         else:

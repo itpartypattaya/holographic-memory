@@ -1,4 +1,8 @@
-"""holomem status: settings, which database, how many facts, whether the clients have the hooks and the server."""
+"""holomem status: settings, which database, how many facts, search by meaning and rescoring (never a key or the
+rescoring address), whether the clients have the hooks and the server.
+
+Opening the store here runs the task-outcome journal's retention (also with the journal off): outcome text past its
+30 days goes from the file."""
 from __future__ import annotations
 
 import json
@@ -8,6 +12,7 @@ from pathlib import Path
 
 from . import config, install
 from .memory import Context, open_memory, secrets
+from .state import read_backoff
 
 
 def _claude_state() -> str:
@@ -46,6 +51,27 @@ def _meaning(cfg: config.Config, memory) -> str:
             f"vector {counts.get('facts_with_vector', 0)}, waiting {counts.get('waiting', 0)}")
 
 
+def _rescoring(cfg: config.Config, memory) -> str:
+    """off, or the model and the endpoint's state (ready / paused (kind) / unavailable: why), read from state.db."""
+    rescoring = memory.rescoring
+    if rescoring is None:
+        return "off"
+    try:
+        held = read_backoff(cfg.state_path, rescoring.name)
+    except Exception as exc:  # noqa: BLE001 - a busy or broken state.db: said by kind
+        return f"on ({rescoring.settings.model}); endpoint: unknown (state.db: {type(exc).__name__})"
+    return f"on ({rescoring.settings.model}); endpoint: {rescoring.describe(held)}"
+
+
+def _journal(cfg: config.Config, memory) -> str:
+    """on/off, the trace, and how many attempts and outcomes the store holds (also when off: data left behind)."""
+    store = memory.store
+    counts = (store.read("SELECT (SELECT COUNT(*) FROM memory_attempts), (SELECT COUNT(*) FROM memory_outcomes)")[0]
+              if store.experience_ready() else (0, 0))
+    state = f"on (trace {'on' if cfg.experience_trace else 'off'})" if cfg.experience else "off"
+    return f"{state}; attempts {counts[0]}, outcomes {counts[1]} (kept 30 days)"
+
+
 def main() -> int:
     cfg = config.load()
     print(f"settings: {cfg.home / 'config.toml'}" + ("" if (cfg.home / "config.toml").exists() else " (none: defaults)"))
@@ -59,8 +85,13 @@ def main() -> int:
         print("database: none here (memory off or no project)")
     else:
         try:
+            from .journal import prune
+
+            prune(memory)
             print(f"database: {memory.path}; facts: {memory.store.count_facts()}")
             print(f"search by meaning: {_meaning(cfg, memory)}")
+            print(f"rescoring: {_rescoring(cfg, memory)}")
+            print(f"task-outcome journal: {_journal(cfg, memory)}")
         finally:
             memory.close()
     print(f"python: {install.python_path()}")

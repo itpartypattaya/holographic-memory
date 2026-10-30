@@ -5,6 +5,8 @@
     holomem install claude-code|codex [--scope user|project] [--dry-run] [--uninstall]
     holomem import claude-memory|codex-memories [--dry-run]
     holomem embed [--seconds N]                                         (search by meaning: vectors now)
+    holomem export [--out FILE] [--category C] [--min-trust X] [--limit N]   (the store as Markdown)
+    holomem export --journal [--days N] [--out FILE]                    (the task-outcome journal as Markdown)
     holomem status
 """
 from __future__ import annotations
@@ -41,6 +43,13 @@ def main(argv: list[str] | None = None) -> int:
     imp.add_argument("--path", help="read this file or directory instead of the default")
     emb = sub.add_parser("embed", help="make the vectors of search by meaning now (embeddings on)")
     emb.add_argument("--seconds", type=float, default=120.0, help="time to spend at most (default 120)")
+    exp = sub.add_parser("export", help="the store as one Markdown page (stdout, or --out FILE), for a review")
+    exp.add_argument("--out", help="write the page to this file (UTF-8; an existing file is replaced)")
+    exp.add_argument("--category", help="only this category")
+    exp.add_argument("--min-trust", type=float, default=0.0, help="only facts trusted at least this much")
+    exp.add_argument("--limit", type=int, help="at most this many facts, the most trusted (default: all)")
+    exp.add_argument("--journal", action="store_true", help="the task-outcome journal instead of the facts")
+    exp.add_argument("--days", type=int, default=30, help="--journal: the attempts of the last N days (1-30)")
     sub.add_parser("status", help="settings, database, facts")
     args = parser.parse_args(argv)
 
@@ -66,6 +75,10 @@ def main(argv: list[str] | None = None) -> int:
         from .importers import main as import_main
 
         return import_main(args)
+    if args.command == "export":
+        from .export import main as export_main
+
+        return export_main(args)
     if args.command == "embed":
         from .embed import main as embed_main
 

@@ -8,7 +8,7 @@ version = "0.0.1"
 description = "Holographic memory (local SQLite fact store with FTS5, trust scoring and HRR recall) for Claude Code and Codex CLI"
 requires-python = ">=3.11"
 license = { text = "MIT" }
-# The engine's own dependencies, as the plugin pins them (vendored from hermes-plugin-holographic, see holomem/engine/ENGINE.json)
+# The engine's dependencies
 dependencies = [
     "numpy>=1.26,<3",
     "snowballstemmer>=2.2,<4",
@@ -21,7 +21,7 @@ holomem = "holomem.__main__:main"
 include = ["holomem*"]
 
 [tool.setuptools.package-data]
-"holomem.engine" = ["ENGINE.json", "LICENSE", "LICENSES/*", "dictionaries/*"]
+"holomem.engine" = ["LICENSE", "LICENSES/*", "dictionaries/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -29,7 +29,6 @@ pythonpath = [".", "tests"]
 
 [tool.ruff]
 line-length = 120
-extend-exclude = ["holomem/engine"]  # vendored byte for byte; changed in the plugin, never here
 
 [tool.ruff.lint]
 select = ["E", "F", "B", "BLE", "RUF100"]

@@ -1,4 +1,4 @@
-"""SQLite-backed fact store with entity resolution and trust scoring (single-user Hermes memory plugin)."""
+"""SQLite-backed fact store with entity resolution and trust scoring (single-user long-term memory of an agent)."""
 
 import contextlib
 from collections import Counter
@@ -12,11 +12,13 @@ from . import holographic as hrr
 from .embeddings import text_hash
 from .entities import _GIVEN_ALIAS, _MAX_COUNTED_IDS, _SPLITS, EntityMixin
 from .entity_names import _clean_given, entity_key, fold
-from .entity_names import (  # noqa: F401 - re-exported: they lived here, and the provider and tests import them from store
+from .entity_names import (  # noqa: F401 - re-exported: they lived here, and callers and tests import them from store
     _RE_TOKEN, _capitalized_phrases, _entity_key_0160, _name_shaped, _outside_plain_quotes, _script_pieces, _valid_entity,
     _without_code, unusable_names)
+from .home import home
 from .history import HISTORY_SCHEMA, VERSION_NAMES_TRIGGERS, HistoryMixin, NotFound, error_kind, parse_day
 from .experience import ExperienceMixin
+from .sqlite_util import add_column_if_missing, apply_wal_with_fallback
 
 logger = logging.getLogger(__name__)
 
@@ -163,8 +165,8 @@ def _restrict_permissions(db_path: Path) -> None:
 class MemoryStore(EntityMixin, HistoryMixin, ExperienceMixin):
     """SQLite-backed fact store with entity resolution and trust scoring.
 
-    Process-wide shared connection registry: SQLite allows one writer at a time and several providers
-    coexist per process (main agent + every delegate_task subagent), so all instances for the same database
+    Process-wide shared connection registry: SQLite allows one writer at a time and several stores
+    of one database coexist per process (an agent and its subagents, a server and its catch-up), so all instances for the same database
     share ONE connection and ONE re-entrant lock — writes are fully serialized and "database is locked" is
     impossible within a process. Refcounted: closing one instance never tears the connection out from under a
     sibling. Every multi-statement write runs in one transaction, so a failure leaves nothing half-written."""
@@ -175,8 +177,7 @@ class MemoryStore(EntityMixin, HistoryMixin, ExperienceMixin):
     def __init__(self, db_path: "str | Path | None" = None, default_trust: float = 0.5, hrr_dim: int = 1024, *,
                  migrate: bool = True, tz=None) -> None:
         if db_path is None:
-            from hermes_constants import get_hermes_home
-            db_path = str(get_hermes_home() / "memory_store.db")
+            db_path = str(home() / "memory_store.db")
         self.db_path = Path(db_path).expanduser()
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self.default_trust, self.hrr_dim = _clamp_trust(default_trust), hrr_dim
@@ -222,11 +223,9 @@ class MemoryStore(EntityMixin, HistoryMixin, ExperienceMixin):
     def _init_db(self) -> None:
         """Create schema, enable WAL via the shared fallback helper (NFS/SMB/FUSE degrade gracefully), add hrr_vector
         to pre-HRR DBs, and narrow the FTS update trigger of DBs created by older versions."""
-        from hermes_state_wal import apply_wal_with_fallback
         apply_wal_with_fallback(self._conn, db_label="memory_store.db (holographic)")
         self._conn.executescript(_SCHEMA)
         if "hrr_vector" not in {row[1] for row in self._conn.execute("PRAGMA table_info(facts)").fetchall()}:
-            from hermes_cli.sqlite_util import add_column_if_missing
             add_column_if_missing(self._conn, "facts", "hrr_vector", "hrr_vector BLOB")
         trigger = self._one("SELECT sql FROM sqlite_master WHERE type = 'trigger' AND name = 'facts_au'")
         if trigger is not None and "UPDATE OF" not in (trigger["sql"] or "").upper():
@@ -329,7 +328,7 @@ class MemoryStore(EntityMixin, HistoryMixin, ExperienceMixin):
     def _tx(self):
         """One write transaction (BEGIN IMMEDIATE ... COMMIT, ROLLBACK on error); nested calls join the outer one.
 
-        The COMMIT is inside the guard: in rollback-journal mode (the core keeps DELETE on a SQLite it deems
+        The COMMIT is inside the guard: in rollback-journal mode (sqlite_util keeps DELETE on a SQLite it deems
         WAL-reset-vulnerable, and on NFS / SMB) a reader in another process makes COMMIT fail with "database is
         locked" after the busy timeout, and a commit that failed leaves the transaction open; without the ROLLBACK
         every later _tx() would join that dangling transaction and nothing would ever be committed again."""
@@ -608,7 +607,7 @@ class MemoryStore(EntityMixin, HistoryMixin, ExperienceMixin):
         rows = self.read("SELECT tags FROM facts WHERE fact_id = ?", (fact_id,))
         return (rows[0]["tags"] or "") if rows else None
 
-    # A fact has keywords when its tags start with the provider's marker line, or have it after a line break.
+    # A fact has keywords when its tags start with the keywords marker line, or have it after a line break.
     _WITHOUT_KEYWORDS = "COALESCE(tags, '') NOT LIKE ? AND COALESCE(tags, '') NOT LIKE ?"
 
     def facts_without_keywords(self, mark: str, limit: int) -> list[dict]:
@@ -783,14 +782,13 @@ class MemoryStore(EntityMixin, HistoryMixin, ExperienceMixin):
     @classmethod
     def release_all_under(cls, directory: "str | Path") -> int:
         """Force-close every shared connection whose database lives under ``directory``; returns the count.
-        close() is refcount-driven, so a live holder (e.g. an agent's provider) keeps a profile's SQLite handle
-        open, which on Windows makes rmtree of the profile fail. The directory is going away, so later use by a
+        close() is refcount-driven, so a live holder (e.g. a long-running server) keeps a directory's SQLite handle
+        open, which on Windows makes rmtree of the directory fail. The directory is going away, so later use by a
         stale holder is expected to fail.
 
-        That is exactly what a profile delete must break on Windows: the desktop's main ``serve`` process
-        opens ``memory_store.db`` for every known profile, and ``rmtree`` of the profile directory fails
-        with ``WinError 32`` while any of those handles is open (#88347). In a process that holds none (e.g.
-        the CLI deleting from outside serve) this is a harmless no-op returning 0.
+        That is exactly what deleting a store's directory must break on Windows: a process that keeps
+        ``memory_store.db`` open makes ``rmtree`` of its directory fail with ``WinError 32`` while any of those
+        handles is open. In a process that holds none this is a harmless no-op returning 0.
         """
         root = os.path.normcase(str(Path(directory).expanduser().resolve())) + os.sep
         with cls._shared_guard:

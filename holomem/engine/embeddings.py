@@ -2,8 +2,8 @@
 Gemini's OpenAI-compatible API, OpenRouter, or a local server such as Ollama or Text Embeddings Inference) turns facts
 and messages into vectors, and recall uses them next to the words, never in their place:
 
-- a fact's vector is made after the turn, on the core's background worker (``sync_turn``), never inside a write: a
-  network call must not hold the database or the provider lock;
+- a fact's vector is made after the turn, by a catch-up outside any reply, never inside a write: a network call
+  must not hold the database or the store's lock;
 - vectors live in their own table, ``fact_embeddings``: one per current fact, with the model and a hash of the text it
   was made from, so a text an older version changed, or a vector of another model, is never compared;
 - every failure falls back to words without a word of complaint to the user; after one the endpoint is left alone for
@@ -11,8 +11,8 @@ and messages into vectors, and recall uses them next to the words, never in thei
   vectors that only ran out of the after-turn time is no failure: the next batch is smaller (issue #5);
 - what recall must not inject (``_recall_problem``) is never sent, nor a message holding a credential.
 
-Nothing here runs, and nothing leaves the machine, unless ``embeddings: on``. Design after
-itpartypattaya/hermes-plugin-holographic#3 by njwangfeng."""
+Nothing here runs, and nothing leaves the machine, unless ``embeddings: on``. Design after a proposal by njwangfeng
+(issue #3)."""
 
 from __future__ import annotations
 
@@ -34,9 +34,9 @@ from collections import OrderedDict
 from . import net  # the socket of the in-flight request, for the caller to end the read (issue #26)
 from .text import UNSEGMENTED, is_greeting, query_terms
 
-np = None  # numpy is optional and loaded on first use (see _numpy): this module is imported from
-# inside the plugin loader's lock while a managed worker starts its reader thread, and a top-level
-# numpy import there deadlocked Kanban workers inside numpy._core._multiarray_umath's create_module.
+np = None  # numpy is optional and loaded on first use (see _numpy): this module may be imported from
+# inside an import lock while another thread starts, and a top-level numpy import there once deadlocked
+# a worker inside numpy._core._multiarray_umath's create_module.
 # Embeddings are off unless the user turns them on, so nothing here needs the array library at load.
 
 
@@ -79,7 +79,7 @@ RECALL_MARGIN = 1.0  # before a turn
 SEARCH_MARGIN = 0.5  # fact_store search: the agent asked, and judges what it gets
 # fact_store search beyond the words (Retriever.beyond_words): of the SEARCH_TOP_K facts closest in meaning, one is
 # shown when it is closer than the best the words found by SEARCH_BEAT_WORDS and stands out at least SEARCH_Z_FLOOR.
-# Measured 2026-10-14 (issue #3): on Mia's store, questions sharing no word but a name 13/27 -> 18/27 and none
+# Measured 2026-10-14 (issue #3): on a live store, questions sharing no word but a name 13/27 -> 18/27 and none
 # at all 3/12 -> 6/12 with the same noise on 30 questions that must find nothing (1); synthetic 59 -> 60 of 67
 # (text-embedding-3-small) and 63 -> 66 (gemini-embedding-001). Rank alone (top 3 into the pool) found as much but
 # put a fact by meaning into 20 of those 30 questions.
@@ -137,7 +137,7 @@ def _number(config: dict, key: str, default, low, high, kind=float):
 
 
 class Settings:
-    """The plugin config's embedding_* keys, validated (see README, "Search by meaning")."""
+    """The config's embedding_* keys, validated (see README, "Search by meaning")."""
 
     __slots__ = ("url", "model", "key_env", "dimensions", "timeout", "min_score", "recall_facts", "weight", "space",
                  "catch_up")
@@ -147,7 +147,7 @@ class Settings:
         self.model = str(config.get("embedding_model") or "text-embedding-3-small").strip()
         self.key_env = str(config.get("embedding_key_env") or "OPENAI_API_KEY").strip()
         self.dimensions = _number(config, "embedding_dimensions", None, 1, 65536, int)
-        # under the core's bound on an external provider's prefetch (8 s), with room for the words
+        # under the 8 s a turn's recall may take (hook_deadline_seconds), with room for the words
         self.timeout = _number(config, "embedding_timeout", 3.0, 0.5, 6.0)
         self.min_score = _number(config, "embedding_min_score", None, -1.0, 1.0)
         self.recall_facts = _number(config, "embedding_prefetch_facts", 1, 0, 3, int)
@@ -155,8 +155,8 @@ class Settings:
         # a label of your own, part of the vectors' identity: change it when the server starts serving another model
         # under the same address and name, and every vector is made again
         self.space = str(config.get("embedding_space") or "").strip()
-        # seconds the fact vectors after a turn may take (None: the plugin's 8). No reply waits for them, but the core
-        # runs every provider's after-turn work on one worker in turn: more here delays the next turn's extraction
+        # seconds the fact vectors after a turn may take (None: 8). No reply waits for them, but the catch-up holds
+        # its worker for that long: more here delays the after-turn work that follows it
         self.catch_up = _number(config, "embedding_catch_up_seconds", None, 2.0, 60.0)
 
     @property
@@ -295,7 +295,7 @@ class _GivenUp:
 
 
 class Embedder:
-    """The endpoint: texts in, unit-length float32 vectors out. Shared by every store a provider opens; thread-safe."""
+    """The endpoint: texts in, unit-length float32 vectors out. Shared by every store a process opens; thread-safe."""
 
     def __init__(self, settings: Settings, environ=None):
         import os
@@ -310,7 +310,7 @@ class Embedder:
         self._queries: OrderedDict = OrderedDict()
         # Requests given up on that may still be running (a stalled server): while one is, no new request starts,
         # so a server that never answers holds one thread and connection per caller at most (the catch-up, outside
-        # the provider lock, and one caller under it), not one per retry.
+        # the store's lock, and one caller under it), not one per retry.
         self._abandoned: list[_GivenUp] = []
         self.calls = 0  # requests sent (stats, tests)
         self._messages_sent = 0  # requests other than fact batches: a fact batch they queued behind is not measured
@@ -539,8 +539,8 @@ class Embedder:
         """One request. It runs on a daemon thread and the caller waits *budget* seconds — embedding_timeout when none
         is given (a message's vector before a turn), the remaining after-turn budget for fact vectors, which no reply
         waits for and come in batches of up to 32 — and no longer: urllib's timeout bounds each socket operation, so a
-        server that sends its headers or its chunks a byte at a time could otherwise hold the caller — and the provider
-        lock prefetch holds — far longer (review 2026-10-14). A request given up on finishes or fails on its own
+        server that sends its headers or its chunks a byte at a time could otherwise hold the caller — and the lock
+        recall holds — far longer (review 2026-10-14). A request given up on finishes or fails on its own
         thread; the endpoint is paused. Two exceptions (issue #5): a request for *fact* vectors that runs out of time
         returns _CUT, and embed_facts decides; a message's request that runs out of time while a fact request of ours
         held the endpoint (a local server may answer one request at a time) returns _BUSY, without a pause.
@@ -582,7 +582,7 @@ class Embedder:
         if self.settings.dimensions:
             body["dimensions"] = self.settings.dimensions
         headers = {"Content-Type": "application/json", "Accept": "application/json",
-                   "User-Agent": "hermes-plugin-holographic"}
+                   "User-Agent": "holographic-memory"}
         key = self._key()
         if key:
             headers["Authorization"] = f"Bearer {key}"
@@ -768,7 +768,7 @@ class Meaning:
 class VectorIndex:
     """One store's fact vectors of one model, kept between queries: a vector is read from the file again only when its
     fact is new, its text changed or it was made again, and the matrix is rebuilt only when that set changes.
-    Thread-safe (the catch-up after a turn runs on the core's background worker)."""
+    Thread-safe (the catch-up after a turn runs on a background thread)."""
 
     def __init__(self, store, tag: str):
         self.store, self.tag = store, tag

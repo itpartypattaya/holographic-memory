@@ -26,7 +26,7 @@ _ID = re.compile(r"[A-Za-z0-9_-]{1,80}\Z")
 OUTCOMES = frozenset(("useful", "dead_end", "corrected", "unknown"))
 REASONS = frozenset(("wrong_entity", "stale_version", "irrelevant", "missing_evidence", "answer_error", "other"))
 
-# Lazy, additive migration. DELETE triggers also work when an older provider forgets a fact.
+# Lazy, additive migration. DELETE triggers also work when an older version forgets a fact.
 # Every referenced candidate invalidates the entire attempt: no unindexed text survives a partial erase.
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS memory_attempts (
@@ -119,7 +119,7 @@ class ExperienceMixin:
             return due["n"] - left
 
     def record_attempt(self, kind, emitted, stages, session_key, trace=False):
-        # This connection is shared by providers in the process, so hold its lock
+        # This connection is shared by every store of the database in the process, so hold its lock
         # until the original timeout is restored, even when a transaction fails.
         started = time.perf_counter()
         lock_ms = schema_ms = transaction_ms = 0.0

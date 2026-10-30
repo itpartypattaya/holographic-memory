@@ -99,7 +99,7 @@ def _fact_text(fact: dict) -> str:
 
 _WARNED: set[str] = set()  # failures said once each (a damaged index fails on every turn)
 # Each line is a fixed place and an error's kind, so the set stays small by itself; the bound only stops a fault
-# from growing it for ever. 64 was reached by the provider's actions alone and hid the next new failure (Codex
+# from growing it for ever. 64 was reached by the store's actions alone and hid the next new failure (Codex
 # review of 0.17.8).
 _WARNED_MAX = 4096
 

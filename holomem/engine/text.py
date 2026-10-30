@@ -55,7 +55,7 @@ _STEMMER_NAMES = (("en", "english"), ("ru", "russian"), ("es", "spanish"), ("fr"
 
 def _load_stemmers(snowball) -> dict:
     """Stemmers by language code, each only if this snowballstemmer has its algorithm: Polish is not in 2.x (in 3.1.1,
-    the version Hermes pins, it is), and without it Polish words compare as written (folded) while the rest of Polish
+    which pyproject.toml allows, it is), and without it Polish words compare as written (folded) while the rest of Polish
     (function words, greetings) still works. "dutch" is Porter's algorithm in 2.x and Snowball's newer one in 3.x,
     which also takes off diminutives ("katje" / "kat")."""
     available = frozenset(snowball.algorithms())
@@ -269,8 +269,8 @@ STOP = {
     কিভাবে কেমন কত কতটা কাকে কার একটি একটা এক জন্য সাথে সঙ্গে থেকে দিয়ে নিয়ে হয় হয়ে হলে হবে হচ্ছে ছিল ছিলেন আছে
     আছেন নেই না নয় হ্যাঁ ঠিক আচ্ছা ধন্যবাদ হ্যালো নমস্কার প্রতি করে করেন করা করছে যায় খুব এর এ তে র"""),
 # Italian, Turkish, Polish, Dutch (unreleased). Left out: everyday English words ("go", "one", "ten", "pod", Turkish
-# "size") and the name Mia (Italian "mia", my). Words that are also content words, names or abbreviations elsewhere are
-# listed but do not tell the language (_WEAK).
+# "size") and "mia" (Italian "my", also a first name). Words that are also content words, names or abbreviations
+# elsewhere are listed but do not tell the language (_WEAK).
 "it": _folded("""
     il lo la i gli le un uno una di a da in con su per tra fra del dello della dei degli delle al allo alla ai agli
     alle dal dallo dalla dai dagli dalle nel nello nella nei negli nelle sul sullo sulla sui sugli sulle col coi e ed o

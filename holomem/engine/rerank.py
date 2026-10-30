@@ -17,7 +17,7 @@ Guardrails (from RFC #9):
 - a call sends no more than the endpoint has shown it scores in half the timeout (RERANK_TIME_SHARE);
 - the reranker judges the pair's text only — no hrr_vector / trust / decay in the request.
 
-Design after itpartypattaya/hermes-plugin-holographic#9 by KostinPavel."""
+Design after a proposal by KostinPavel (issue #9)."""
 
 from __future__ import annotations
 
@@ -39,7 +39,7 @@ PAUSE_FIRST, PAUSE_MAX = 60.0, 900.0  # seconds the endpoint is left alone after
 MAX_RESPONSE = 64 << 20
 # What one query-document pair may hold (2026-10-26): jina-reranker-v2 and bge-reranker-v2-m3 take 1024 tokens per
 # pair, and llama-server refuses the whole request when one pair runs over (500 past its batch, 400 past the
-# context), which paused the endpoint on Mia's long night-job prompts. Both use XLM-RoBERTa's SentencePiece without
+# context), which paused the endpoint on an agent's long night-job prompts. Both use XLM-RoBERTa's SentencePiece without
 # byte fallback: every token covers at least one character, the word-start mark stands for a space of the text or
 # one added at the start, and an unknown character is one token — so a pair of RERANK_PAIR_CHARS characters is at
 # most that many tokens plus the start marks and the 4 special tokens, under 1024 for CJK, emoji and dense text
@@ -50,7 +50,7 @@ RERANK_MAX_QUERY_CHARS = 500
 DEFAULT_TOP_K = 40  # depth of the pool the cross-encoder sees; the first stage's limit is widened to match
 DEFAULT_TIMEOUT = 3.0  # seconds; 3.0, not 2.0: a slow local endpoint is the normal case (issue #5)
 # What one call may take of rerank_timeout (2026-10-29). A cross-encoder on a CPU scores the pairs at a steady speed,
-# so its time grows with every character it is sent: Mia's llama-server (jina-reranker-v2 Q4_K_M, 2 threads, ~485
+# so its time grows with every character it is sent: a llama-server (jina-reranker-v2 Q4_K_M, 2 threads, ~485
 # tokens/s) answered 5 short facts in 0.4 s, 15 in 1.2 s and 40 in 3.3 s — over the default timeout, so the large
 # pools of a big store failed and paused the endpoint. A call sends as many of the first documents as the endpoint,
 # at the slowest of its last _SPEED_SAMPLES speeds, scores in this share of the timeout; the rest keep their order
@@ -59,7 +59,7 @@ DEFAULT_TIMEOUT = 3.0  # seconds; 3.0, not 2.0: a slow local endpoint is the nor
 RERANK_TIME_SHARE = 0.5
 _SPEED_SAMPLES = 5
 
-#: The core's budget for the provider's prefetch: _EXTERNAL_PREFETCH_TIMEOUT_S in agent/memory_manager.py.
+#: The budget of one turn's recall, below the hook's 8 s deadline (hook_deadline_seconds).
 #: The embedding call and the rerank run back to back, so the sum of their clamps has to fit below
 #: it with margin (maintainer 24:10, point 4: defaults 3 + 3 fit, emb 6 + rerank 10 — no).
 _PREFETCH_BUDGET_S = 7.5
@@ -85,7 +85,7 @@ def _number(config: dict, key: str, default, low, high, kind=float):
 
 
 class Settings:
-    """The plugin config's rerank_* keys, validated (see README). One mode: the cross-encoder reorders the pool,
+    """The config's rerank_* keys, validated (see README). One mode: the cross-encoder reorders the pool,
     admission stays with coverage; `rerank_window` (δ) trims the tail below δ of the best score, 0 keeps all —
     and never below two scored candidates (built into the window itself, review 13:06: no switch for it).
     `rerank_scale` is the endpoint's own scale, set explicitly: default `logit`, because llama-server
@@ -106,10 +106,10 @@ class Settings:
         self.window = _number(config, "rerank_window", DEFAULT_WINDOW, 0.0, 1.0)
         # the score scale is the ENDPOINT's own property and the user's setting (point 3 of the
         # 13:06 review): explicit, no probing and no latching; default logit — llama-server returns
-        # raw logits. The provider's _CHOICES holds the set of values: outside it —
+        # raw logits. The settings hold the set of values: outside it —
         # a named config problem with memory off, not a silent fallback.
         self.scale = str(config.get("rerank_scale") or "logit").strip().lower()
-        # point 2 (19:39 review): the core's budget counts ONLY the enabled embeddings — the stray
+        # point 2 (19:39 review): the budget counts ONLY the enabled embeddings — the stray
         # embedding_timeout with embeddings off must not cut anything. Second problem: _number
         # returns the default WITHOUT a clamp, so the default rerank_timeout bypassed the cap (emb 6 + 3 = 9
         # s against a budget of 7.5) — we cap explicitly: min(user value, budget − emb).
@@ -176,7 +176,7 @@ def _pair_document(query: str, document) -> str:
 
 
 class Rescorer:
-    """The endpoint: (query, documents) in, ``(index, score)`` pairs out. Shared by every store a provider opens;
+    """The endpoint: (query, documents) in, ``(index, score)`` pairs out. Shared by every store a process opens;
     thread-safe. ``scores`` returns None on any failure (the caller keeps the current order)."""
 
     def __init__(self, settings: Settings, secret_check=None):
@@ -227,7 +227,7 @@ class Rescorer:
         return self.status() == "ready"
 
     def note_failure(self, why: str) -> None:
-        """A failure OUTSIDE scores() — an exception in the mapping/window of the rerank stage at the provider (point 3
+        """A failure OUTSIDE scores() — an exception in the mapping/window of the rerank stage at the caller (point 3
         of the maintainer's 24:10 checklist): the same result as a failed call — the endpoint is
         paused, failures counted and failed in last_status, so the run's fail-fast sees it."""
         self.last_status = f"failed: {why}"
@@ -278,7 +278,7 @@ class Rescorer:
     def fitting(self, query: str, documents: list[str]) -> int:
         """How many of the first *documents* a call sends: top_k at most and, once the endpoint has answered or timed
         out, as many as it scores in RERANK_TIME_SHARE of rerank_timeout at the slowest of its last speeds — two at
-        least, one would not be reordered. The provider's stage trace names the documents by the same count."""
+        least, one would not be reordered. The caller's stage trace names the documents by the same count."""
         query = (query or "").strip()
         count = min(int(self.settings.top_k), len(documents))
         with self._lock:
@@ -297,7 +297,7 @@ class Rescorer:
         """One request. Runs on a daemon thread; the caller waits ``rerank_timeout`` seconds and no longer."""
         timeout = self.settings.timeout
         headers = {"Content-Type": "application/json", "Accept": "application/json",
-                   "User-Agent": "hermes-plugin-holographic"}
+                   "User-Agent": "holographic-memory"}
         request = urllib.request.Request(self._url or "", data=json.dumps(body).encode("utf-8"), headers=headers,
                                          method="POST")
         held = net.wire(request)  # the request's socket, for the caller to end the read on its deadline (issue #26)
@@ -348,7 +348,7 @@ class Rescorer:
                 # smaller (19:39 review): checking whether the earlier one is alive, the assignment and the start of
                 # the new one — ONE critical section (there were two before, and an assign without a start would read
                 # as a dead worker): Rescorer must be safe under concurrent calls on its own, not only because the
-                # provider's inputs happen to be serialised today.
+                # caller's inputs happen to be serialised today.
                 self._worker = worker  # tracked while it lives (point 5)
                 self._awaited = True
                 noted = None

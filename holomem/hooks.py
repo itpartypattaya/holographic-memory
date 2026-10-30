@@ -6,6 +6,10 @@ A hook that fails, exits 2 or runs out its client's timeout blocks the person's 
 a hook failure, so nothing here may: every error ends in an empty answer, and the work runs under a deadline
 (``hook_deadline_seconds``, 8 s by default, below Claude Code's 30 s) after which the hook gives up silently. What went
 wrong is logged by its kind only to ``$HOLOMEM_HOME/holomem.log``: a message may quote a fact.
+
+The deadline is fixed before the work starts and handed down (``Budget``): optional work — search by meaning,
+rescoring, the journal's receipt, auto_extract, the journal's daily retention — takes only what is left of it, so it
+never makes the hook lose a block that was ready.
 """
 from __future__ import annotations
 
@@ -14,13 +18,15 @@ import logging
 import os
 import sys
 import threading
+import time
 
 from . import config
 from .memory import Context, open_memory
-from .recall import recall, trivial
+from .recall import Budget, recall, trivial
 
 logger = logging.getLogger("holomem")
 EVENTS = {"user-prompt": "UserPromptSubmit", "session-start": "SessionStart"}
+EXTRACT_MIN_LEFT = 2.5  # seconds of the deadline auto_extract needs (it writes to the store)
 
 
 def _log_to_file(cfg: config.Config) -> None:
@@ -40,8 +46,9 @@ def answer(event: str, text: str) -> str:
     return json.dumps({"hookSpecificOutput": {"hookEventName": EVENTS[event], "additionalContext": text}})
 
 
-def run(event: str, client: str, payload: dict, cfg: config.Config) -> str:
-    """The hook's stdout for *payload* ("" for nothing)."""
+def run(event: str, client: str, payload: dict, cfg: config.Config, budget: Budget | None = None) -> str:
+    """The hook's stdout for *payload* ("" for nothing), within *budget* (no deadline when None)."""
+    budget = budget or Budget()
     ctx = Context(client=client, session_id=str(payload.get("session_id") or ""), cwd=str(payload.get("cwd") or ""))
     if event == "session-start":
         from .session import block
@@ -67,13 +74,14 @@ def run(event: str, client: str, payload: dict, cfg: config.Config) -> str:
 
         state = State(cfg.state_path)
         try:
-            text = recall(memory, state, ctx, prompt)
+            text = recall(memory, state, ctx, prompt, budget)
+            # after recall: a sentence stored now is not handed back in the same turn
+            if cfg.auto_extract and budget.left() >= EXTRACT_MIN_LEFT:
+                from .extract import extract
+
+                extract(memory, ctx, prompt)
         finally:
             state.close()
-        if cfg.auto_extract:  # after recall: a sentence stored now is not handed back in the same turn
-            from .extract import extract
-
-            extract(memory, ctx, prompt)
         return answer(event, text)
     finally:
         memory.close()
@@ -96,10 +104,11 @@ def main(event: str, client: str, stdin: bytes) -> int:
     if not isinstance(payload, dict):
         return 0
     result: list[str] = []
+    budget = Budget(time.monotonic() + cfg.hook_deadline_seconds)
 
     def work() -> None:
         try:
-            result.append(run(event, client, payload, cfg))
+            result.append(run(event, client, payload, cfg, budget))
         except Exception as exc:  # noqa: BLE001 - logged by kind; the prompt goes on without memory
             logger.warning("holomem: %s hook failed (%s)", event, type(exc).__name__)
 

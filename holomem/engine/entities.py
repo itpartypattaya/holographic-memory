@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 # older release since: kept like a given one, and dropped only when a forgotten fact said it as "X aka Y").
 _GIVEN_ALIAS = "COALESCE(source, 'legacy') != 'aka'"
 # What declared names split off aliases a fact's text gave during one operation (MemoryStore.collect_splits, 0.17.0):
-# per thread, open only while the provider runs one tool call.
+# per thread, open only while one tool call runs.
 _SPLITS = threading.local()
 _DELETE_MAX = 100  # names in one delete_entity call
 _MAX_COUNTED_IDS = 500  # record_retrievals batch cap (far under SQLite's bound-parameter limit)
