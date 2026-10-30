@@ -14,6 +14,7 @@
 ## Проект
 
 HANDOFF.md обновлять в каждой сессии, в той же сессии, что и правки (файл локальный, в `.gitignore`, как в плагине).
+`AGENTS.md` (Codex) — копия этого файла: правка в одном переносится в другой в том же коммите.
 
 - Что это: мост, который ставит движок памяти `hermes-plugin-holographic` в Claude Code и Codex CLI (хуки + MCP-сервер).
   План — `plans/` (локально) и `Documents\hermes-plugin-holographic\plans\2026-10-30-holo-for-claude-code-codex.md`.
