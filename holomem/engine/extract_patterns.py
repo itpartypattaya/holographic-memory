@@ -1,4 +1,4 @@
-"""Auto-extraction patterns, copied by tools/sync_engine.py out of the provider (__init__.py) of itpartypattaya/hermes-plugin-holographic v0.25.1:
+"""Auto-extraction patterns, copied by tools/sync_engine.py out of the provider (__init__.py) of itpartypattaya/hermes-plugin-holographic v0.25.2:
 the source text of its _EXTRACT_CATEGORIES assignment, exactly. Do not edit: change the plugin."""
 
 import re

@@ -1,7 +1,7 @@
 {
   "source": "itpartypattaya/hermes-plugin-holographic",
-  "tag": "v0.25.1",
-  "commit": "cd8848c28529c37256509347e462764fd6372af2",
+  "tag": "v0.25.2",
+  "commit": "9dc7b768dc5284b2c8bfaccd6af2dac4a356a392",
   "files": {
     "LICENSE": "f76529e417b218b5e2b4794acf1513ce205c35dad6e1947e52e7f13e56a76fbb",
     "LICENSES/DerivBase.Ru-Apache-2.0.txt": "df315f481523b8c620a38dba5b44eef01305d1624464f8eb9e9ab9f4e37b2474",
@@ -23,15 +23,15 @@
     "entities.py": "155e2a2a737a15acebe8877bf841ef158cd784d730cc78f72aa79653bcfb7067",
     "entity_names.py": "b3054110c714e1e7151fad419c8996b195ceb3a577416693f772877336cfb1c4",
     "experience.py": "1acf7496b77676722035f1ca025e94d6eaf688b09a249ee8c1bf60092bbe2cba",
-    "extract_patterns.py": "761eae4b5609f71cad36da5bb86e4aeb325219327eb095645c0f6cb4e45c8561",
+    "extract_patterns.py": "8479a4bf613034c8240d435d5c8a297939c720f1e57ad87c228f2dceb9fc827b",
     "history.py": "0ba760f2f2ee1c9ec05568e9cbff71017af776c1b8485bb99bb0d3ae341a2d62",
     "holographic.py": "d46294664e488897b2966be93282ce4e8854d82c677199a84df068907f0c7b22",
     "memory_map.py": "6af8af7982779b06c88267820201af644319c0fec20e07714fdee7faf1c66168",
     "net.py": "c47cf22beac0046014e324bc4bf829f2b6bec1424dbfbf56082f266d47ced118",
     "rerank.py": "205931448ad1497c7cec13b6400db343cef0fdb532429e108ffea7938858f17c",
-    "retrieval.py": "b5ca482a679365d963e4fcc2b3bb700982aca2b580f52d5d847f96c87a7f2285",
+    "retrieval.py": "f2c0c27ea2d94468384777d0913de6833c034b38f7d448ea44b57caa36f8fd5d",
     "screen.py": "7728d5eceb2763e02fff5542e79f4e5824de262165d0995b2653a282d256606d",
     "store.py": "d6131ba438f41a1a1e3e02bce921e1ce6e4455d298b739a7237117257ea68f8f",
-    "text.py": "ccf62b23086c54a04fcabd734488d59132f31fba6d1257a6962afabc72914719"
+    "text.py": "ed3c0624b2c606cd762f0f7f1e65f0aa8849d90eb2d164ef0bb46ec2c6d8bb8f"
   }
 }
