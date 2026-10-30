@@ -116,7 +116,10 @@ def _source_suffix(src: dict | None, ctx: Context) -> str:
 
 
 def _lone_word_off_topic(query: str, fact: dict, meaning) -> bool:
-    """A fact the words let in by one shared word that meaning does not back: not about the message.
+    """A fact the words let in by one shared word that meaning does not back: not about the message. *meaning* None
+    (search by meaning is on but down this turn: the endpoint failed or is paused, no time was left): one such word is
+    not enough, nothing can back it, a fact without a vector too (seen live 2026-10-30, a timeout brought the blog
+    rule back).
 
     The engine drops one shared word that other facts hold too ("What day is today?"), but in a small store an
     everyday word is held by one fact only and looks as rare as a name: «Сколько мне сейчас лет?» brought a rule about
@@ -129,7 +132,7 @@ def _lone_word_off_topic(query: str, fact: dict, meaning) -> bool:
     from .engine.text import analyze, query_terms
 
     fact_id = fact["fact_id"]
-    if fact_id not in meaning.sims or not meaning.fits(fact_id, fact.get("content", "")):
+    if meaning is not None and (fact_id not in meaning.sims or not meaning.fits(fact_id, fact.get("content", ""))):
         return False
     terms = [t for t in query_terms(query) if t.word]
     analysis = analyze(_fact_text(fact))
@@ -140,7 +143,7 @@ def _lone_word_off_topic(query: str, fact: dict, meaning) -> bool:
     names = {k for name in _inner_capitals(query) for w in analyze(name).words for k in w.keys}
     if not matched[0].keys.isdisjoint(names):
         return False
-    return meaning.z(fact_id) < _LONE_WORD_MIN_Z
+    return meaning is None or meaning.z(fact_id) < _LONE_WORD_MIN_Z
 
 
 def _named_off_topic(fact: dict, meaning) -> bool:
@@ -158,18 +161,23 @@ def _named_off_topic(fact: dict, meaning) -> bool:
 
 
 def _meaning(memory: Memory, state: State, query: str, whole: str, budget: Budget):
-    """The message's closeness to the facts, or None (off, paused after a failure, nothing to compare, or less time
-    left than embedding_timeout and the reserve). A failed call pauses search by meaning for every hook process for
-    _EMBED_PAUSE_SECONDS."""
-    if memory.embedder is None or state.paused(EMBED_PAUSE):
-        return None
+    """(the message's closeness to the facts or None, down): None when off, paused after a failure, nothing to
+    compare, or less time left than embedding_timeout and the reserve; *down* when search by meaning is on but could
+    not answer this turn (the endpoint failed or is paused, no time was left), not when there was nothing to ask or
+    compare (a message not worth a call or holding a credential, no fact vector yet). A failed call pauses search by
+    meaning for every hook process for _EMBED_PAUSE_SECONDS."""
+    if memory.embedder is None:
+        return None, False
+    if state.paused(EMBED_PAUSE):
+        return None, True
     if budget.left() - RESERVE < memory.embedding.timeout:
         logger.debug("holomem: search by meaning skipped (no time left)")
-        return None
+        return None, True
     meaning = memory.meaning_of(query, before_turn=True, whole=whole)
     if meaning is None and memory.embedder.status().startswith("paused"):
         state.pause(EMBED_PAUSE, _EMBED_PAUSE_SECONDS)
-    return meaning
+        return None, True
+    return meaning, False
 
 
 def recall(memory: Memory, state: State, ctx: Context, prompt: str, budget: Budget | None = None) -> str:
@@ -194,7 +202,7 @@ def recall(memory: Memory, state: State, ctx: Context, prompt: str, budget: Budg
             return False
         return True
 
-    meaning = _meaning(memory, state, query, prompt or "", budget)
+    meaning, meaning_down = _meaning(memory, state, query, prompt or "", budget)
     # the person the memory belongs to: named in passing in most messages, their name pulls nothing by itself
     owner = store.mentioned_entity_ids(", ".join(cfg.self_names)) if cfg.self_names else set()
 
@@ -207,7 +215,7 @@ def recall(memory: Memory, state: State, ctx: Context, prompt: str, budget: Budg
         """Stream 1, the same in every layout: the relevance gate, one ordinary word, repeats and safety."""
         gate = retriever.relevant(query, candidates, cfg.prefetch_min_coverage)
         trace.observe("coverage_admitted", gate)
-        if meaning is not None:
+        if meaning is not None or meaning_down:  # off or nothing to compare yet: as the engine decided
             lone = {f["fact_id"] for f in gate if _lone_word_off_topic(query, f, meaning)}
             trace.observe("rejected_lone_word", [f for f in gate if f["fact_id"] in lone])
             gate = [f for f in gate if f["fact_id"] not in lone]

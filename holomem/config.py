@@ -61,6 +61,7 @@ _KEYS: dict[str, tuple] = {
     "rerank_top_k": (15, "int", (1, 1000)),  # 40 took ~4.6 s through a tunnel to a 2-thread CPU server
     "rerank_weight": (0.0, "float", (0.0, 1.0)),
     "rerank_window": (0.05, "float", (0.0, 1.0)),
+    "rerank_floor": (0.0, "float", (0.0, 1.0)),  # recall drops a scored fact below it (0..1 scale)
     "rerank_scale": ("logit", "str", {"logit", "unit"}),
     "rerank_timeout": (3.0, "float", (0.5, 10.0)),
 }
@@ -103,6 +104,7 @@ class Config:
     rerank_top_k: int = 15
     rerank_weight: float = 0.0
     rerank_window: float = 0.05
+    rerank_floor: float = 0.0
     rerank_scale: str = "logit"
     rerank_timeout: float = 3.0
     problems: list[str] = field(default_factory=list)

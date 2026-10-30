@@ -227,8 +227,20 @@ class Rescoring:
     def arrange(self, pool: list[dict], ranked: list[tuple[int, float]]) -> list[dict]:
         """The pool in its new order, *ranked* holding (position in pool, score): weight 0 — the scored by score, the
         rest (not sent, not sendable) behind in their order, and with rerank_window the scored tail below the window
-        cut (never below two); weight > 0 — every member blended (blend_union), no window."""
+        cut (never below two); weight > 0 — every member blended (blend_union), no window. Before either, with
+        rerank_floor a scored fact below it on the 0..1 scale goes, the last one too and the window's two as well:
+        the window is relative to the best candidate, so a lone unrelated one always went in (2026-10-31)."""
         weight, window = float(self.settings.weight), float(self.settings.window)
+        floor = float(self.settings.floor)
+        if floor > 0.0:
+            from .engine.rerank import normalized
+
+            low = {i for (i, _), s in zip(ranked, normalized(ranked, self.settings.scale)) if s < floor}
+            ranked = [(i, s) for i, s in ranked if i not in low]
+            pool = [f for i, f in enumerate(pool) if i not in low]
+            ranked = [(i - sum(1 for j in low if j < i), s) for i, s in ranked]
+            if not ranked:  # nothing scored is left: the facts that were not scored, in their order
+                return pool
         if weight > 0.0:
             return blend_union(list(pool), ranked, weight)
         order = [i for i, _ in ranked if i < len(pool)]

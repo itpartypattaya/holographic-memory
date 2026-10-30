@@ -245,6 +245,13 @@ def test_the_owners_name_alone_does_not_pull_their_facts(home):
     assert f"#{ids[2]}" in other
 
 
+def test_a_short_name_in_another_case_brings_its_facts(home):
+    """«Расскажи про Иру» brought nothing (2026-10-30): a three-letter word gets no stem, so «Иру» met neither the
+    entity «Ира» nor the fact's words."""
+    ids = seed(home, [("Ира учится в пятом классе", ["Ира"])])
+    assert f"#{ids[0]}" in context(hook(home, "user-prompt", prompt("Расскажи про Иру")))
+
+
 def test_self_names_must_be_a_list_of_names(home):
     home.mkdir(parents=True)
     (home / "config.toml").write_text('self_names = "Mark"\n', encoding="utf-8")

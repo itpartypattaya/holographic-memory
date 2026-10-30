@@ -42,14 +42,22 @@ for this message (search by meaning on), or because the message names someone it
 the recall screen (no credential, no instruction, no hidden markup) and the repeat window; with
 [rescoring](#rescoring-optional) on, one more model orders what is left and cuts its tail.
 
-Two filters keep stray facts out, both measured on a live store and both working only with search by meaning on:
+Two filters keep stray facts out, both measured on a live store and both judged by search by meaning:
 
 - **One ordinary shared word.** In a small store an everyday word ("now", "me", "after") is held by one fact only and
   looks as rare as a name, so "How old am I now?" used to bring a note that merely says "now". A fact let in by
   exactly one shared word of a longer message is kept only when meaning backs it (it stands out for this message,
   z ≥ 1). A name, an identifier, a one-word message and a fact without a vector are left as the words decided.
+  While search by meaning is on but gives nothing (the endpoint failed or is paused, or no time was left), one such
+  word is not enough: nothing can back it, so the fact stays out (a city named in lowercase waits for meaning too).
+  With search by meaning off, or before any fact has a vector, the words decide, as before.
 - **A name in passing.** "Lena sent the electricity bill" used to bring Lena's two most trusted facts, about anything.
   A fact that comes by a name alone is now kept only when meaning backs it, as above.
+
+Names are read in any case: "Tell me about Ira" in Russian (Иру, Ирой, Иры) finds the entity «Ира» by the case
+ending, as a stem cannot read a three-letter word; «Яном» is «Ян», not «Яна», while «Яну» may be either. Only a word
+written with a capital inside a sentence is read so: «рою» and «Рою яму» stay a verb, not the name «Рой» (so «Иру»
+opening a sentence is not read either; «Ира» is).
 
 And one setting for the person the memory belongs to: you are named in many messages ("Mark asked to fix the
 script"), so `self_names = ["Mark"]` stops your name from pulling your facts by itself. A question about you still
@@ -61,8 +69,8 @@ Every change is a dated version, so "what held on 1 October" stays answerable. `
 world) keeps the old text as the past; `memory_correct` (it was wrong) replaces it and the wrong text never comes back
 as the past; `memory_end` closes a fact nothing replaces; `memory_merge` folds a retelling into the fact it repeats.
 Only `memory_forget` erases, with the whole history; what stays is a tombstone without text (the file's freed pages
-are zeroed, so no copy of the text is left in it). Dates are `YYYY-MM-DD`, `today` or `yesterday`, in the store's
-time zone; a date in the future is refused.
+are zeroed, so no copy of the text is left in it). Dates are `YYYY-MM-DD`, `today` or `yesterday`, in this machine's
+time zone (clock changes included); a date in the future is refused.
 
 ## Install
 
@@ -287,6 +295,7 @@ why), never its address.
 | `rerank_model` | `local-reranker` | the model name sent (llama-server's `--alias`) |
 | `rerank_top_k` | `15` | facts sent at most (1 to 1000); 40 took ~4.6 s through a tunnel |
 | `rerank_window` | `0.05` | cut the scored facts more than this below the best (scores on a 0..1 scale), never below two; 0 cuts nothing |
+| `rerank_floor` | `0` | recall drops a scored fact below this (0..1 scale), the last one too: the window is relative to the best, so without a floor a lone unrelated fact still goes in. Calibrate on your model: with jina-reranker-v2 wanted facts scored logit −1.8…+1.5 and strays ≤ −2.8, so `0.075` (logit −2.5) |
 | `rerank_weight` | `0` | 0: the endpoint decides the order; above 0 (to 1) its score is blended with the words' and no window applies |
 | `rerank_scale` | `logit` | `logit` for raw scores (llama-server), `unit` for scores already in 0..1 |
 | `rerank_timeout` | `3` | seconds one call may take (0.5 to 10) |

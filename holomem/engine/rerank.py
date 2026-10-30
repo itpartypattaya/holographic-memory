@@ -91,7 +91,7 @@ class Settings:
     `rerank_scale` is the endpoint's own scale, set explicitly: default `logit`, because llama-server
     (the documented setup) returns raw logits."""
 
-    __slots__ = ("url", "model", "top_k", "weight", "timeout", "window", "scale")
+    __slots__ = ("url", "model", "top_k", "weight", "timeout", "window", "scale", "floor")
 
     def __init__(self, config: dict):
         # rerank_mode / rerank_margin removed (point 6 of the 2026-10-22 review): one mode, the window is a separate switch.
@@ -104,6 +104,9 @@ class Settings:
         self.top_k = _number(config, "rerank_top_k", DEFAULT_TOP_K, 1, 1000, int)  # int (kind=int)
         self.weight = _number(config, "rerank_weight", 0.0, 0.0, 1.0)
         self.window = _number(config, "rerank_window", DEFAULT_WINDOW, 0.0, 1.0)
+        # rerank_floor: the caller drops a scored candidate below it (0..1 scale), the only one too — so with a floor
+        # a single document is scored, not given the trivial rank (2026-10-31)
+        self.floor = _number(config, "rerank_floor", 0.0, 0.0, 1.0)
         # the score scale is the ENDPOINT's own property and the user's setting (point 3 of the
         # 13:06 review): explicit, no probing and no latching; default logit — llama-server returns
         # raw logits. The settings hold the set of values: outside it —
@@ -258,7 +261,7 @@ class Rescorer:
             # a failure for the run's zero-failed-calls budget, not a neutral skip.
             self.last_status = f"failed: {self.status()}"
             return None
-        if len(documents) == 1:
+        if len(documents) == 1 and not self.settings.floor:
             # One sendable document: nothing to reorder, the window cannot drop the only candidate
             # (a cut judged from the top always keeps the top) and the blend of a single score is
             # the same either way — so no call is made and the trivial rank comes back (PR #10, point 9).

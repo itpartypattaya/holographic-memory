@@ -695,7 +695,7 @@ class Tools:
             return "off"
         settings = rescoring.settings
         return {"model": settings.model, "endpoint": rescoring.status(self.state), "top_k": settings.top_k,
-                "weight": settings.weight, "window": settings.window, "scale": settings.scale}
+                "weight": settings.weight, "window": settings.window, "floor": settings.floor, "scale": settings.scale}
 
 
 def dumps(answer: dict) -> str:

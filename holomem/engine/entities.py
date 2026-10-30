@@ -14,7 +14,7 @@ from .entity_names import (_AKA_MAX, _AKA_WINDOW, _ENTITY_MAX_CHARS, _QUOTED_MAX
                            _found_between_cuts, _inline_gap, _legacy_aliases, _mention_stretches, _mixed, _name_shaped,
                            _outside_plain_quotes, _straight_quoted, _uncased, _valid_entity, _without_code, entity_key, fold)
 from .history import NotFound
-from .text import STOPWORDS, UNSEGMENTED, analyze, is_chinese, name_keys, zh_word_cuts
+from .text import STOPWORDS, UNSEGMENTED, analyze, is_chinese, name_keys, name_lemmas, zh_word_cuts
 from .text import fold as text_fold
 
 logger = logging.getLogger(__name__)
@@ -38,6 +38,35 @@ def _key_words(text: str) -> list[str]:
 def _in_a_row(words: list[str], name: list[str]) -> bool:
     n = len(name)
     return n > 0 and any(words[i:i + n] == name for i in range(len(words) - n + 1))
+
+
+def _capitals_inside(text: str) -> set[str]:
+    """The words (lower-cased) *text* writes with a capital somewhere other than at the start of a sentence: a name,
+    not a word that merely opens one («Рою яму»), a list item («* Рою», «1) Рою»), a quote or what follows a colon
+    («План: Рою яму», Codex review 2026-10-31)."""
+    out = set()
+    for m in re.finditer(r"[^\W\d_]+", text):
+        before = text[:m.start()].rstrip(" \t\"'«“„(—–-")
+        if m.group()[:1].isupper() and before and before[-1] not in ".!?…:;\n\r*•·)":
+            out.add(m.group().lower())
+    return out
+
+
+def _with_yo(lemmas: frozenset, word: str) -> frozenset:
+    """*lemmas* (name_lemmas reads ё as е) with the ё of *word* back where it stood too: «Ёсю» -> «еся» and «ёся», the
+    form a name written with ё is looked up by."""
+    if "ё" not in word:
+        return lemmas
+    back = {"".join("ё" if i < len(word) and word[i] == "ё" and c == "е" else c for i, c in enumerate(lemma))
+            for lemma in lemmas}
+    return lemmas | back
+
+
+def _written(forms: frozenset) -> frozenset:
+    """The forms of one name word as written: those no other form extends («яна» of {ян, яна}; a stem is a prefix),
+    each with ё read as е too, as name_lemmas reads it («ёся»: «Ёсю» -> «еся»)."""
+    written = [f for f in forms if not any(g != f and g.startswith(f) for g in forms)]
+    return frozenset(written + [f.replace("ё", "е") for f in written])
 
 
 class EntityMixin:
@@ -660,17 +689,27 @@ class EntityMixin:
         "إيرما", while "jeans" does not mention "Jean" and "машина" not "Маша". Looked up by each word's keys, not by
         scanning names. The text is read in NFKC, as names are indexed, and stretch by stretch between separators
         (0.16.1): the words of one name stand together on one line, never across a line break, a comma or a bracket
-        ("Alice\nSmith" and "Alice, Smith" do not mention Alice Smith)."""
+        ("Alice\nSmith" and "Alice, Smith" do not mention Alice Smith). A Cyrillic word too short for a stem («Иру»,
+        «Яном») and written with a capital is read by its case ending instead (name_lemmas, as names_fit reads it;
+        2026-10-31: «Расскажи про Иру» found no Ира) as well as by its own keys («Ёся» as written), and then meets a
+        name as written, not its stem: «Яном» is «Ян», not «Яна» (stem «ян»). A stopword, a word in lower case or
+        one opening a sentence never is read so: «рою» / «Рою яму» are not «Рой», «даю» not «Дай» (Codex review
+        2026-10-31); «иру» in lower case keeps its own keys only, as before."""
         text = unicodedata.normalize("NFKC", text or "")
         index = self._known_entities()
         found = set()
+        capitals = _capitals_inside(text)
         for stretch in _mention_stretches(text):
             sequence = analyze(stretch).words
-            for i, word in enumerate(sequence):
-                for first in word.keys:
+            lemmas = [_with_yo(name_lemmas(w.text), w.text) if w.keys == {w.text} and not w.stop and
+                      w.text in capitals else frozenset() for w in sequence]
+            keys = [w.keys | lemmas[i] for i, w in enumerate(sequence)]
+            for i in range(len(sequence)):
+                for first in keys[i]:
                     for entity_id, key in index.get(first, ()):
                         if entity_id not in found and len(sequence) - i >= len(key) and all(
-                                sequence[i + j].text in forms if exact else not forms.isdisjoint(sequence[i + j].keys)
+                                sequence[i + j].text in forms if exact else
+                                not (_written(forms) if lemmas[i + j] else forms).isdisjoint(keys[i + j])
                                 for j, (forms, exact) in enumerate(key)):
                             found.add(entity_id)
         lowered_text = text.lower()

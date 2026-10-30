@@ -3,6 +3,7 @@
 environment), and with ``rerank`` on the rescoring endpoint (rescore.py)."""
 from __future__ import annotations
 
+import datetime
 import hashlib
 import logging
 import os
@@ -58,6 +59,47 @@ def secrets(path: Path) -> dict[str, str]:
     return out
 
 
+class LocalTime(datetime.tzinfo):
+    """The machine's timezone with its clock changes, read from the system at each date: an offset taken once at start
+    would stay wrong in an MCP server running through a change (Codex review 2026-10-31)."""
+
+    @staticmethod
+    def _stamps(wall: datetime.datetime) -> list[float]:
+        """The moments a local wall time names: one, two in the hour an autumn change repeats (earlier first), none in
+        the hour a spring change skips."""
+        found = set()
+        for isdst in (0, 1):
+            try:
+                stamp = time.mktime(wall.timetuple()[:8] + (isdst,))
+            except (OverflowError, ValueError, OSError):
+                continue
+            if time.localtime(stamp)[:6] == wall.timetuple()[:6]:
+                found.add(stamp)
+        return sorted(found)
+
+    def fromutc(self, dt: datetime.datetime) -> datetime.datetime:
+        stamp = dt.replace(tzinfo=datetime.timezone.utc).timestamp()
+        local = dt + datetime.timedelta(seconds=time.localtime(stamp).tm_gmtoff)
+        twice = self._stamps(local.replace(tzinfo=None))
+        return local.replace(fold=1) if len(twice) == 2 and stamp == twice[1] else local
+
+    def utcoffset(self, dt: datetime.datetime | None) -> datetime.timedelta:
+        stamps = self._stamps(dt.replace(tzinfo=None, fold=0)) if dt is not None else []
+        if not stamps:  # now, a skipped hour, or a date the system cannot place: the offset of the moment it names
+            try:
+                stamps = [time.mktime(dt.replace(tzinfo=None).timetuple()) if dt is not None else time.time()]
+            except (OverflowError, ValueError, OSError):
+                stamps = [time.time()]
+        stamp = stamps[-1] if dt is not None and dt.fold and len(stamps) == 2 else stamps[0]
+        return datetime.timedelta(seconds=time.localtime(stamp).tm_gmtoff)
+
+    def dst(self, dt: datetime.datetime | None) -> None:
+        return None
+
+    def tzname(self, dt: datetime.datetime | None) -> str:
+        return time.strftime("%z", time.localtime())
+
+
 def environ(cfg: Config):
     """Where the embeddings key is looked up: $HOLOMEM_HOME/.env first, then the environment."""
     return ChainMap(secrets(cfg.secrets_path), os.environ)
@@ -73,7 +115,9 @@ class Memory:
 
         self.cfg, self.path = cfg, db_path
         self.journal_error = ""  # the last receipt failure, by kind (memory_experience recent)
-        self.store = MemoryStore(db_path, default_trust=cfg.default_trust, hrr_dim=cfg.hrr_dim)
+        # dates in this machine's timezone ("today", recorded_on): without it they were UTC, and from midnight to 07:00
+        # at UTC+7 "today" was yesterday (2026-10-31)
+        self.store = MemoryStore(db_path, default_trust=cfg.default_trust, hrr_dim=cfg.hrr_dim, tz=LocalTime())
         self.retriever = FactRetriever(self.store, temporal_decay_half_life=cfg.temporal_decay_half_life,
                                        hrr_weight=cfg.hrr_weight, hrr_dim=cfg.hrr_dim)
         self.embedding = embeddings.settings_from(cfg.embedding_config())

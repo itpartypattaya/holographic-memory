@@ -283,6 +283,31 @@ def test_the_window_keeps_two_and_an_unsendable_fact_stays_behind(tmp_path, rank
     assert lines(recall_in(wide)) == [scored[3], scored[0], scored[1], scored[2], UNSENDABLE]
 
 
+def test_a_floor_drops_what_the_endpoint_scores_as_unrelated_even_the_last_fact(tmp_path, ranker):
+    """The window is relative to the best candidate and keeps two: a lone stray fact (one candidate, or all of them
+    unrelated) always went in. Live (2026-10-31, jina-reranker-v2): facts a question wanted scored −1.78…+1.54, the
+    strays that went in ≤ −2.8. rerank_floor (on the 0..1 scale) drops a scored fact below it, the window's two too."""
+    off = tmp_path / "off"
+    deploy_store(off, settings(None), [UNSENDABLE])
+    scored = [w for w in lines(recall_in(off)) if w != UNSENDABLE]
+    floor = tmp_path / "floor"
+    deploy_store(floor, settings(ranker, rerank_window=0.5, rerank_floor=0.075), [UNSENDABLE])  # logit −2.5
+    ranker.prefer, ranker.default = {scored[1]: 2.0, scored[3]: -1.8}, -4.0
+    assert lines(recall_in(floor)) == [scored[1], scored[3], UNSENDABLE]  # the window's two are above the floor
+    ranker.prefer = {scored[1]: 2.0}
+    assert lines(recall_in(floor, session="s2")) == [scored[1], UNSENDABLE]  # no second one above it
+    lone = tmp_path / "lone"
+    seed(lone, [(text, []) for text in FILLER[:8] + DEPLOYS[:1]], settings(ranker, rerank_floor=0.075))
+    ranker.prefer = {}
+    assert recall_in(lone) == ""  # the one candidate, unrelated
+    ranker.prefer = {DEPLOYS[0]: -1.8}
+    assert lines(recall_in(lone, session="s2")) == DEPLOYS[:1]  # wanted, if weakly
+    unset = tmp_path / "unset"
+    seed(unset, [(text, []) for text in FILLER[:8] + DEPLOYS[:1]], settings(ranker))
+    ranker.prefer = {}
+    assert lines(recall_in(unset)) == DEPLOYS[:1]  # no floor: the window keeps it, as before
+
+
 # -- 3. failures give the off block, and the pause --------------------------------------------------------------------
 
 @pytest.mark.parametrize("mode", ["fail", "silent", "trickle", "out_of_range", "duplicate"])

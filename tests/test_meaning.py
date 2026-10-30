@@ -304,6 +304,30 @@ def test_one_ordinary_shared_word_without_meaning_recalls_nothing(home, endpoint
     assert f"#{city}" in named  # one ordinary shared word too («ребёнок»), but meaning backs it
 
 
+def test_one_ordinary_shared_word_recalls_nothing_while_meaning_is_down(home, endpoint):
+    """Seen live (2026-10-30): the embeddings endpoint timed out, search by meaning paused for every hook, and for those
+    minutes «Сколько мне сейчас лет?» brought the blog rule again: the filter needed meaning to judge one shared word.
+    With search by meaning on but not answering, one ordinary shared word is not enough; two still are."""
+    ids = seed(home, [(text, []) for text in FILLER + [LONE_WORD]], config(endpoint))
+    lone = ids[-1]
+    (home / ".env").write_text(f"HOLO_TEST_EMBED_KEY={KEY}\n", encoding="utf-8")
+    assert cli(home, "embed").returncode == 0
+    endpoint.mode = "fail"
+    first = context(hook(home, "user-prompt", prompt("Сколько мне сейчас лет?", session="a")))  # the call fails
+    paused = context(hook(home, "user-prompt", prompt("Что сейчас нового?", session="b")))  # paused: no call
+    assert f"#{lone}" not in first and f"#{lone}" not in paused
+    two = context(hook(home, "user-prompt", prompt("Как писать текст статей для блога?", session="c")))
+    assert f"#{lone}" in two
+
+
+def test_one_ordinary_shared_word_is_left_to_the_words_before_any_vector_exists(home, endpoint):
+    """Codex review 2026-10-31: search by meaning just turned on (or a new model), the endpoint answers, no fact has a
+    vector yet: that is not an outage, nothing is judged by meaning yet, and the words decide as before."""
+    ids = seed(home, [(text, []) for text in FILLER + [LONE_WORD]], config(endpoint))
+    (home / ".env").write_text(f"HOLO_TEST_EMBED_KEY={KEY}\n", encoding="utf-8")
+    assert f"#{ids[-1]}" in context(hook(home, "user-prompt", prompt("Сколько мне сейчас лет?")))
+
+
 SCHOOL = "Лена ходит в хорошую школу у моря."
 
 

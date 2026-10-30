@@ -133,6 +133,57 @@ def test_review_points_a_near_duplicate_to_merge(mcp):
     assert {r["fact_id"] for r in found["results"]} == {first, second}
 
 
+def test_today_is_the_date_where_the_person_is(home, monkeypatch):
+    """«today» was the UTC date: from midnight to 07:00 at UTC+7 an agent's valid_from "today" was yesterday
+    (2026-10-31). The store's dates are the machine's. At any moment one of UTC+14 and UTC−12 has another date than UTC."""
+    import datetime
+
+    for posix, hours in (("UTC-14", 14), ("UTC+12", -12)):
+        monkeypatch.setenv("TZ", posix)
+        client = Client(home / posix).start()
+        try:
+            added, is_error = client.call("memory_add", content=f"Robert started a course {posix}",
+                                          valid_from="today", origin="said")
+            assert not is_error, added
+            version = client.call("memory_history", fact_id=added["fact_id"])[0]["versions"][-1]
+        finally:
+            client.close()
+        there = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=hours))).date().isoformat()
+        assert version["valid_from"] == there, (posix, version)
+
+
+def test_the_store_follows_the_clock_change_without_a_restart(tmp_path):
+    """Codex second pass 2026-10-31: the local offset taken once at start stays fixed, so a server running through the
+    autumn clock change gave tomorrow's date for an hour. The store's timezone follows the machine's transitions, the
+    hour the autumn change repeats too (third pass: both 01:30 came back as the first, one with the wrong offset)."""
+    import json
+    import os
+    import subprocess
+    import sys
+    import textwrap
+
+    code = textwrap.dedent("""
+        import json, sys, datetime
+        sys.path.insert(0, sys.argv[1])
+        from pathlib import Path
+        from holomem.config import load
+        from holomem.memory import Memory
+        tz = Memory(load(), Path(sys.argv[2])).store.tz
+        print(json.dumps([datetime.datetime.fromtimestamp(t, tz).utcoffset().total_seconds() / 3600
+                          for t in (1783000000, 1767000000)]))  # July and December 2026
+        twice = [1793521800, 1793525400]  # 2026-11-01 08:30Z and 09:30Z: 01:30 PDT, then 01:30 PST
+        print(json.dumps([[str(d.time()), d.fold, d.timestamp()] for d in
+                          (datetime.datetime.fromtimestamp(t, tz) for t in twice)]))
+    """)
+    env = {**os.environ, "TZ": "PST8PDT", "HOLOMEM_HOME": str(tmp_path / "holo")}
+    done = subprocess.run([sys.executable, "-I", "-c", code, str(Path(__file__).resolve().parent.parent),
+                           str(tmp_path / "facts.db")], capture_output=True, text=True, env=env, timeout=60)
+    assert done.returncode == 0, done.stderr[-1500:]
+    offsets, repeated = (json.loads(line) for line in done.stdout.splitlines())
+    assert offsets == [-7.0, -8.0]  # summer time, then standard time, in one process
+    assert repeated == [["01:30:00", 0, 1793521800], ["01:30:00", 1, 1793525400]]
+
+
 def test_dates_take_today_and_yesterday_as_the_tools_promise(mcp):
     """The tools' schema says a date is "YYYY-MM-DD, 'today' or 'yesterday'"; an agent that believes it must not get
     an error on its first write (seen 2026-10-30: valid_from "today" was refused). Any case, spaces around."""
