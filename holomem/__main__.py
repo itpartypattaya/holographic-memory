@@ -29,6 +29,9 @@ def main(argv: list[str] | None = None) -> int:
     inst.add_argument("--dry-run", action="store_true", help="show the change, write nothing")
     inst.add_argument("--uninstall", action="store_true", help="remove what install added")
     inst.add_argument("--claude-cli", help="the claude executable, when it is not on PATH")
+    inst.add_argument("--recall", choices=["command", "mcp"], default="command",
+                      help="Claude Code: recall by a new process per prompt (command) or by the running MCP server "
+                           "(mcp: no Python start per prompt; nothing recalled while the server is not connected)")
     inst.add_argument("--approval", choices=["auto", "writes", "prompt"], default="auto",
                       help="Codex: when its memory tools ask for approval (default: never)")
     imp = sub.add_parser("import", help="copy a client's own memory files into the store, as facts")

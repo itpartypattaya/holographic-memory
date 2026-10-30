@@ -166,3 +166,25 @@ def test_codex_refuses_a_result_that_would_not_parse(tmp_path):
     rc, shown = _run_codex(project, remove=False, dry_run=False)
     assert rc == 1 and "would not parse" in shown
     assert path.read_text(encoding="utf-8") == "[mcp_servers.holographic]\ncommand = \"x\"\n"
+
+
+def test_claude_recall_mcp_writes_an_mcp_tool_hook_and_switches_cleanly(tmp_path):
+    """--recall mcp: UserPromptSubmit calls the running server's memory_recall with the prompt; SessionStart stays a
+    command hook (mcp_tool hooks do not run at launch). Switching modes leaves one hook; uninstall removes it."""
+    project = tmp_path / "p"
+    path = project / ".claude" / "settings.local.json"
+    path.parent.mkdir(parents=True)
+    path.write_text(json.dumps(CLAUDE_BEFORE), encoding="utf-8")
+    cli, _ = _claude_cli(tmp_path)
+    _run_claude(tmp_path, project, remove=False, dry_run=False, cli=cli)
+    out = io.StringIO()
+    install.install_claude("project", project, remove=False, dry_run=False, cli=cli, out=out, recall="mcp")
+    after = json.loads(path.read_text(encoding="utf-8"))
+    prompt_hooks = [h for g in after["hooks"]["UserPromptSubmit"] for h in g["hooks"]]
+    assert prompt_hooks[0]["command"] == "echo other" and len(prompt_hooks) == 2
+    assert prompt_hooks[1] == {"type": "mcp_tool", "server": "holographic", "tool": "memory_recall",
+                               "input": {"prompt": "${prompt}", "session_id": "${session_id}", "cwd": "${cwd}"},
+                               "timeout": 15}
+    assert [h["type"] for g in after["hooks"]["SessionStart"] for h in g["hooks"]] == ["command"]
+    _run_claude(tmp_path, project, remove=True, dry_run=False, cli=cli)
+    assert json.loads(path.read_text(encoding="utf-8")) == CLAUDE_BEFORE

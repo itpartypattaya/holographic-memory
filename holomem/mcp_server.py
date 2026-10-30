@@ -13,8 +13,19 @@ import os
 import sys
 
 from . import __version__, config
+from .hooks import answer
 from .memory import Context, open_memory
+from .recall import recall, trivial
 from .tools import NAMES, READ_ONLY, SCHEMAS, Tools, dumps
+
+# For a UserPromptSubmit hook of type mcp_tool (Claude Code: input {"prompt": "${prompt}", "session_id":
+# "${session_id}", "cwd": "${cwd}"}): its text is the hook's JSON answer, read like a command hook's stdout.
+RECALL = {"name": "memory_recall",
+          "description": "Used by the memory hook before each message: the stored facts relevant to it, as the hook's "
+                         "JSON answer (empty when nothing is relevant). Not needed in conversation: use memory_search.",
+          "inputSchema": {"type": "object", "properties": {"prompt": {"type": "string"},
+                                                           "session_id": {"type": "string"},
+                                                           "cwd": {"type": "string"}}, "required": ["prompt"]}}
 
 logger = logging.getLogger("holomem")
 
@@ -66,14 +77,35 @@ class Server:
             return self._ok(msg_id, {"tools": [
                 {**schema, "annotations": {"readOnlyHint": schema["name"] in READ_ONLY,
                                            "destructiveHint": schema["name"] == "memory_forget",
-                                           "openWorldHint": False}} for schema in SCHEMAS]})
+                                           "openWorldHint": False}} for schema in (*SCHEMAS, RECALL)]})
         if method == "tools/call":
             name, args = params.get("name"), params.get("arguments") or {}
+            if name == RECALL["name"]:  # never an error: a failing hook must not stand in the prompt's way
+                text = self._recall(args if isinstance(args, dict) else {})
+                return self._ok(msg_id, {"content": [{"type": "text", "text": text}], "isError": False})
             if name not in NAMES:
                 return self._error(msg_id, -32602, f"Unknown tool: {name}")
             answer, is_error = self._call(name, args)
             return self._ok(msg_id, {"content": [{"type": "text", "text": dumps(answer)}], "isError": is_error})
         return self._error(msg_id, -32601, f"Method not found: {method}")
+
+    def _recall(self, args: dict) -> str:
+        """The UserPromptSubmit hook's answer, computed in this warm process (a hook of type mcp_tool): the same gates
+        and recall as ``holomem hook user-prompt``, without starting Python, numpy and the store for each prompt."""
+        prompt = args.get("prompt")
+        if not isinstance(prompt, str) or trivial(prompt) or self.cfg.problems:
+            return ""
+        try:
+            from .engine.text import is_greeting
+
+            if is_greeting(prompt) or self._tools() is None:
+                return ""
+            ctx = Context(client=self.ctx.client, session_id=str(args.get("session_id") or ""),
+                          cwd=str(args.get("cwd") or self.ctx.cwd))
+            return answer("user-prompt", recall(self.memory, self.state, ctx, prompt))
+        except Exception as exc:  # noqa: BLE001 - logged by kind; the prompt goes on without memory
+            logger.warning("holomem: memory_recall failed (%s)", type(exc).__name__)
+            return ""
 
     def _call(self, name: str, args) -> tuple[dict, bool]:
         if self.cfg.problems:

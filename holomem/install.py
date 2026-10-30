@@ -33,6 +33,7 @@ PERMISSION = f"mcp__{SERVER}__*"
 MARK_BEGIN = "# >>> holographic-memory (holomem install codex) >>>"
 MARK_END = "# <<< holographic-memory <<<"
 _HOOK_MARK = "-m holomem hook"
+RECALL_TOOL = "memory_recall"  # the MCP server's tool for a UserPromptSubmit hook of type mcp_tool (--recall mcp)
 _HOOK_TIMEOUT = 15  # seconds; the hook gives up on its own at hook_deadline_seconds (8)
 
 
@@ -52,14 +53,32 @@ def claude_settings_path(scope: str, project: Path) -> Path:
     return Path.home() / ".claude" / "settings.json" if scope == "user" else project / ".claude" / "settings.local.json"
 
 
+def _ours(hook) -> bool:
+    """A hook an install of ours wrote: a holomem command, or the mcp_tool recall (--recall mcp)."""
+    if not isinstance(hook, dict):
+        return False
+    return _HOOK_MARK in str(hook.get("command", "")) or (hook.get("type") == "mcp_tool"
+                                                          and hook.get("tool") == RECALL_TOOL)
+
+
+def _prompt_hook(recall: str) -> dict:
+    """The UserPromptSubmit hook: a new process per prompt (command, the default), or a call to the running MCP server
+    (mcp: no Python start per prompt; recalls nothing while the server is not connected)."""
+    if recall == "mcp":
+        return {"type": "mcp_tool", "server": SERVER, "tool": RECALL_TOOL,
+                "input": {"prompt": "${prompt}", "session_id": "${session_id}", "cwd": "${cwd}"},
+                "timeout": _HOOK_TIMEOUT}
+    return {"type": "command", "command": command("hook", "user-prompt", "--client", "claude-code"),
+            "timeout": _HOOK_TIMEOUT}
+
+
 def _without_ours(groups: list) -> list:
     kept = []
     for group in groups if isinstance(groups, list) else []:
         if not isinstance(group, dict):
             kept.append(group)
             continue
-        hooks = [h for h in group.get("hooks", []) if not (isinstance(h, dict)
-                                                         and _HOOK_MARK in str(h.get("command", "")))]
+        hooks = [h for h in group.get("hooks", []) if not _ours(h)]
         if hooks:
             kept.append({**group, "hooks": hooks})
         elif not group.get("hooks"):
@@ -67,15 +86,17 @@ def _without_ours(groups: list) -> list:
     return kept
 
 
-def claude_settings(settings: dict, *, remove: bool = False) -> dict:
-    """*settings* with our hooks and permission rule (or without them)."""
+def claude_settings(settings: dict, *, remove: bool = False, recall: str = "command") -> dict:
+    """*settings* with our hooks and permission rule (or without them). SessionStart is always a command hook: Claude
+    Code skips mcp_tool hooks at launch, before the session's MCP servers are up."""
     out = json.loads(json.dumps(settings))  # a deep copy
     hooks = out.get("hooks") if isinstance(out.get("hooks"), dict) else {}
     for event, name in (("UserPromptSubmit", "user-prompt"), ("SessionStart", "session-start")):
         groups = _without_ours(hooks.get(event, []))
         if not remove:
-            groups.append({"hooks": [{"type": "command", "command": command("hook", name, "--client", "claude-code"),
-                                      "timeout": _HOOK_TIMEOUT}]})
+            hook = _prompt_hook(recall) if name == "user-prompt" else {
+                "type": "command", "command": command("hook", name, "--client", "claude-code"), "timeout": _HOOK_TIMEOUT}
+            groups.append({"hooks": [hook]})
         if groups:
             hooks[event] = groups
         else:
@@ -169,7 +190,8 @@ def _write(path: Path, old: str, new: str, dry_run: bool, out) -> bool:
     return True
 
 
-def install_claude(scope: str, project: Path, *, remove: bool, dry_run: bool, cli: str | None, out=sys.stdout) -> int:
+def install_claude(scope: str, project: Path, *, remove: bool, dry_run: bool, cli: str | None, out=sys.stdout,
+                   recall: str = "command") -> int:
     path = claude_settings_path(scope, project)
     old = path.read_text(encoding="utf-8") if path.exists() else ""
     try:
@@ -180,7 +202,7 @@ def install_claude(scope: str, project: Path, *, remove: bool, dry_run: bool, cl
     if not isinstance(settings, dict):
         print(f"{path} is not a JSON object; nothing was changed", file=out)
         return 1
-    new = json.dumps(claude_settings(settings, remove=remove), indent=2, ensure_ascii=False) + "\n"
+    new = json.dumps(claude_settings(settings, remove=remove, recall=recall), indent=2, ensure_ascii=False) + "\n"
     if new.strip() == "{}" and not old.strip():
         new = old
     _write(path, old, new, dry_run, out)
@@ -220,6 +242,6 @@ def main(args) -> int:
     project = Path(args.project).resolve()
     if args.client == "claude-code":
         return install_claude(args.scope, project, remove=args.uninstall, dry_run=args.dry_run,
-                              cli=getattr(args, "claude_cli", None))
+                              cli=getattr(args, "claude_cli", None), recall=getattr(args, "recall", "command"))
     return install_codex(args.scope, project, remove=args.uninstall, dry_run=args.dry_run,
                          approval=getattr(args, "approval", "auto"))

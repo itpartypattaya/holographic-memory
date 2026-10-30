@@ -89,7 +89,7 @@ def test_handshake_and_tool_list(mcp):
     tools = {t["name"]: t for t in mcp.request("tools/list")["result"]["tools"]}
     assert sorted(tools) == sorted(["memory_add", "memory_search", "memory_probe", "memory_related", "memory_change",
                                     "memory_correct", "memory_end", "memory_revert", "memory_forget",
-                                    "memory_history", "memory_list", "memory_stats", "memory_feedback"])
+                                    "memory_history", "memory_list", "memory_stats", "memory_feedback", "memory_recall"])
     assert tools["memory_search"]["annotations"]["readOnlyHint"] is True
     assert tools["memory_add"]["annotations"]["readOnlyHint"] is False
     assert tools["memory_forget"]["annotations"]["destructiveHint"] is True
@@ -215,3 +215,33 @@ def test_two_sessions_writing_at_once_lose_nothing(home):
         assert conn.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
     finally:
         conn.close()
+
+
+def _recall(mcp: Client, prompt_text: str, session: str = "s1") -> str:
+    result = mcp.request("tools/call", {"name": "memory_recall",
+                                        "arguments": {"prompt": prompt_text, "session_id": session, "cwd": ""}})
+    assert result["result"]["isError"] is False
+    return result["result"]["content"][0]["text"]
+
+
+def test_memory_recall_answers_as_the_hook_does(mcp):
+    """For a hook of type mcp_tool: the same JSON a command hook prints, the same repeat window, the same gates."""
+    fid = mcp.call("memory_add", content="The billing service deploys to staging with systemd")[0]["fact_id"]
+    tools = {t["name"]: t for t in mcp.request("tools/list")["result"]["tools"]}
+    assert "memory_recall" in tools
+    text = _recall(mcp, "How does the billing service deploy?")
+    data = json.loads(text)["hookSpecificOutput"]
+    assert data["hookEventName"] == "UserPromptSubmit" and f"- #{fid} [0.5]" in data["additionalContext"]
+    assert _recall(mcp, "How does the billing service deploy?") == ""          # within the repeat window
+    assert "billing" in _recall(mcp, "How does the billing service deploy?", "s2")
+    assert _recall(mcp, "ok thanks") == "" and _recall(mcp, "${prompt}") == ""
+
+
+def test_memory_recall_with_broken_settings_is_silent(home):
+    home.mkdir(parents=True)
+    (home / "config.toml").write_text('hrr_dim = "x"\n', encoding="utf-8")
+    client = Client(home).start()
+    try:
+        assert _recall(client, "How does the billing service deploy?") == ""
+    finally:
+        client.close()
