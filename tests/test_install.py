@@ -16,6 +16,8 @@ import io
 import json
 import sys
 import tomllib
+
+import pytest
 from pathlib import Path
 
 from holomem import install
@@ -143,7 +145,10 @@ def test_codex_install_appends_one_block_and_keeps_the_rest(tmp_path):
     assert server["args"] == ["-I", "-m", "holomem", "mcp", "--client", "codex"]
     assert server["default_tools_approval_mode"] == "auto"
     hook = data["hooks"]["UserPromptSubmit"][0]["hooks"][0]
-    assert hook["command"].endswith("hook user-prompt --client codex") and hook["command_windows"] == hook["command"]
+    assert hook["command"].endswith("hook user-prompt --client codex")
+    # PowerShell form (Codex's Windows shell): not the quoted POSIX line, which is a ParserError there
+    assert hook["command_windows"] == install.windows_command(Path(sys.executable).as_posix(), "hook", "user-prompt",
+                                                              "--client", "codex")
     assert data["hooks"]["SessionStart"][0]["hooks"][0]["command"].endswith("hook session-start --client codex")
     _run_codex(project, remove=False, dry_run=False)
     assert path.read_text(encoding="utf-8").count(install.MARK_BEGIN) == 1
@@ -188,3 +193,32 @@ def test_claude_recall_mcp_writes_an_mcp_tool_hook_and_switches_cleanly(tmp_path
     assert [h["type"] for g in after["hooks"]["SessionStart"] for h in g["hooks"]] == ["command"]
     _run_claude(tmp_path, project, remove=True, dry_run=False, cli=cli)
     assert json.loads(path.read_text(encoding="utf-8")) == CLAUDE_BEFORE
+
+
+def test_codex_windows_command_runs_under_powershell(tmp_path):
+    """Codex runs command_windows through PowerShell, where '"C:/path/python.exe" -I ...' is a ParserError and the
+    hook fails on every prompt (seen live 30.10). The command written must parse there and start this interpreter
+    with the hook's arguments: exit 0 where holomem is importable under -I (an installed tool), else Python's own
+    "No module named holomem" (this test's interpreter has the package only on sys.path, which -I drops)."""
+    import os
+    import shutil
+    import subprocess
+
+    pwsh = shutil.which("pwsh")
+    if pwsh is None:
+        pytest.skip("PowerShell 7 is not installed here")
+    data = tomllib.loads(install.codex_block())
+    cmd = data["hooks"]["UserPromptSubmit"][0]["hooks"][0]["command_windows"]
+    env = {**os.environ, "HOLOMEM_HOME": str(tmp_path / "holo"),
+           "PYTHONPATH": str(Path(__file__).resolve().parent.parent)}
+    proc = subprocess.run([pwsh, "-NoProfile", "-NonInteractive", "-Command", cmd + "; exit $LASTEXITCODE"],
+                          input=b'{"session_id": "s", "cwd": "", "prompt": "ok thanks"}', capture_output=True,
+                          env=env, timeout=120)
+    assert b"ParserError" not in proc.stderr, proc.stderr.decode(errors="replace")[-600:]
+    assert proc.returncode == 0 or b"No module named holomem" in proc.stderr, proc.stderr.decode(errors="replace")[-600:]
+
+
+def test_windows_command_quotes_a_path_with_spaces_for_powershell():
+    assert install.windows_command("C:/Program Files/Py/python.exe", "hook", "x").startswith(
+        '& "C:/Program Files/Py/python.exe" -I -m holomem hook x')
+    assert install.windows_command("C:/Py/python.exe", "mcp") == "C:/Py/python.exe -I -m holomem mcp"

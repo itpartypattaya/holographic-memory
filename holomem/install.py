@@ -42,8 +42,17 @@ def python_path() -> str:
 
 
 def command(*args: str) -> str:
-    """One command line for both clients' shells: the interpreter quoted, forward slashes."""
+    """A command line for a POSIX-style shell (Claude Code runs hooks through Git Bash on Windows): the interpreter
+    quoted, forward slashes."""
     return " ".join([f'"{python_path()}"', "-I", "-m", "holomem", *args])
+
+
+def windows_command(python: str, *args: str) -> str:
+    """A command line for PowerShell, which Codex uses for command_windows: a quoted path followed by arguments is a
+    ParserError there ("Unexpected token '-I'"), so the path goes bare, or after the call operator when it holds a
+    space."""
+    head = f'& "{python}"' if " " in python else python
+    return " ".join([head, "-I", "-m", "holomem", *args])
 
 
 # -- Claude Code ---------------------------------------------------------------------------------------------------
@@ -146,8 +155,9 @@ def codex_block(approval: str = "auto") -> str:
              "startup_timeout_sec = 20", f"default_tools_approval_mode = {_toml_str(approval)}", ""]
     for event, name in (("UserPromptSubmit", "user-prompt"), ("SessionStart", "session-start")):
         cmd = command("hook", name, "--client", "codex")
+        win = windows_command(python_path(), "hook", name, "--client", "codex")
         lines += [f"[[hooks.{event}]]", f"[[hooks.{event}.hooks]]", 'type = "command"', f"command = {_toml_str(cmd)}",
-                  f"command_windows = {_toml_str(cmd)}", f"timeout = {_HOOK_TIMEOUT}",
+                  f"command_windows = {_toml_str(win)}", f"timeout = {_HOOK_TIMEOUT}",
                   'statusMessage = "holographic memory"', ""]
     lines.append(MARK_END)
     return "\n".join(lines) + "\n"
