@@ -18,6 +18,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import sqlite3
 import subprocess
 import sys
@@ -343,3 +344,12 @@ def test_a_name_in_passing_brings_no_fact_meaning_does_not_back(home, endpoint):
     assert f"#{school}" not in context(hook(home, "user-prompt", prompt(passing, session="a")))
     about = "Лена спрашивает, где и чему она будет учиться в следующем году после переезда в другой город"
     assert f"#{school}" in context(hook(home, "user-prompt", prompt(about, session="b")))
+
+
+def test_search_by_meaning_the_deadline_leaves_no_time_for_is_logged_with_where_the_time_went(home, endpoint):
+    ids = seed(home, [(text, []) for text in FILLER], config(endpoint) + "hook_deadline_seconds = 3.5\n")
+    (home / ".env").write_text(f"HOLO_TEST_EMBED_KEY={KEY}\n", encoding="utf-8")
+    hook(home, "user-prompt", prompt("Как писать текст статей для блога?"))
+    assert ids and not endpoint.requests  # embedding_timeout 3 s does not fit in what is left
+    log = (home / "holomem.log").read_text(encoding="utf-8")
+    assert re.search(r"search by meaning skipped, \d+\.\d s left \(open \d+\.\d\d s, turn \d+\.\d\d s, meaning", log), log

@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sqlite3
 import subprocess
 import sys
@@ -276,3 +277,24 @@ def test_a_state_db_held_by_another_process_still_gives_the_block(home):
         holder.close()
     assert f"#{ids[0]}" in context(proc)
     assert elapsed < 8.0, elapsed
+
+
+def test_a_hook_that_gives_up_says_where_its_time_went(home):
+    """A hook cut by its deadline answers nothing; the log then says which step held it (here the store another
+    process keeps locked), so a slow machine, a busy store and a slow endpoint can be told apart."""
+    seed(home, [("The billing service deploys to the staging server with systemd", [])],
+         "hook_deadline_seconds = 1.5\n")
+    holder = sqlite3.connect(home / "memory_store.db", isolation_level=None)
+    holder.execute("BEGIN EXCLUSIVE")
+    try:
+        proc = hook(home, "user-prompt", prompt("How does the billing service deploy?"))
+    finally:
+        holder.execute("ROLLBACK")
+        holder.close()
+    assert proc.returncode == 0 and proc.stdout == b""
+    log = (home / "holomem.log").read_text(encoding="utf-8")
+    found = re.search(r"gave up after 1\.5 s, still in (\w+) \((.*)\)", log)
+    assert found, log
+    step, trail = found.groups()
+    took = dict((name, float(seconds)) for name, seconds in re.findall(r"(\w+) (\d+\.\d+) s", trail))
+    assert step in took and took[step] >= 1.0, log  # the step it was stuck in took the deadline

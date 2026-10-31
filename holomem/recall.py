@@ -39,7 +39,7 @@ import unicodedata
 
 from . import journal
 from .memory import Context, Memory, revision
-from .rescore import RESERVE
+from .rescore import MIN_TIMEOUT, RESERVE
 from .state import State
 
 logger = logging.getLogger("holomem")
@@ -71,6 +71,19 @@ class Budget:
 
     def __init__(self, deadline: float | None = None):
         self.deadline = deadline
+        self._steps: list[tuple[str, float]] = []
+
+    def step(self, name: str) -> None:
+        """*name* starts now: a hook its deadline cut says where the time went (trail)."""
+        self._steps.append((name, time.monotonic()))
+
+    def trail(self) -> str:
+        """"open 0.20 s, words 0.04 s, rerank 7.70 s": each step's time, the last one up to now."""
+        ends = [start for _, start in self._steps[1:]] + [time.monotonic()]
+        return ", ".join(f"{name} {end - start:.2f} s" for (name, start), end in zip(self._steps, ends))
+
+    def current(self) -> str | None:
+        return self._steps[-1][0] if self._steps else None
 
     @classmethod
     def seconds(cls, seconds: float) -> Budget:
@@ -171,7 +184,7 @@ def _meaning(memory: Memory, state: State, query: str, whole: str, budget: Budge
     if state.paused(EMBED_PAUSE):
         return None, True
     if budget.left() - RESERVE < memory.embedding.timeout:
-        logger.debug("holomem: search by meaning skipped (no time left)")
+        logger.warning("holomem: search by meaning skipped, %.1f s left (%s)", budget.left(), budget.trail())
         return None, True
     meaning = memory.meaning_of(query, before_turn=True, whole=whole)
     if meaning is None and memory.embedder.status().startswith("paused"):
@@ -188,6 +201,7 @@ def recall(memory: Memory, state: State, ctx: Context, prompt: str, budget: Budg
     cfg, store, retriever = memory.cfg, memory.store, memory.retriever
     query = (prompt or "")[:_QUERY_CHARS]
     session = f"{ctx.client}|{ctx.session_id}|{memory.path}"
+    budget.step("turn")
     turn = state.next_turn(session, wait=max(0.0, min(_TURN_WAIT, budget.left() - RESERVE)))
     seen = state.seen(session)
     trace = journal.Trace(cfg.experience and cfg.experience_trace)
@@ -202,7 +216,9 @@ def recall(memory: Memory, state: State, ctx: Context, prompt: str, budget: Budg
             return False
         return True
 
+    budget.step("meaning")
     meaning, meaning_down = _meaning(memory, state, query, prompt or "", budget)
+    budget.step("search")
     # the person the memory belongs to: named in passing in most messages, their name pulls nothing by itself
     owner = store.mentioned_entity_ids(", ".join(cfg.self_names)) if cfg.self_names else set()
 
@@ -261,6 +277,7 @@ def recall(memory: Memory, state: State, ctx: Context, prompt: str, budget: Budg
         trace.observe("rerank_union", pool)
         positions = [i for i, f in enumerate(pool) if _sendable(f.get("content") or "")]
         try:
+            budget.step("rerank")
             ranked = rescoring.scores(state, query, [pool[i].get("content") or "" for i in positions], budget) \
                 if positions else None
             if ranked is not None:
@@ -278,7 +295,10 @@ def recall(memory: Memory, state: State, ctx: Context, prompt: str, budget: Budg
     if rescoring is not None and rescoring.callable(state, budget):
         fresh, by_meaning = unified(rescoring)
     else:
+        if rescoring is not None and rescoring.timeout(budget) < MIN_TIMEOUT:  # not a pause: the time ran short
+            logger.warning("holomem: rescoring skipped, %.1f s left (%s)", budget.left(), budget.trail())
         fresh, by_meaning = off_layout(search(_CANDIDATES, "lexical_candidates"))
+    budget.step("block")
     if not fresh:
         return ""
     ids = [f["fact_id"] for f in fresh]
@@ -309,5 +329,6 @@ def recall(memory: Memory, state: State, ctx: Context, prompt: str, budget: Budg
         store.add_retrieval_counts({f["fact_id"]: 1 for f in fresh})  # recall (record_retrievals waited 10 s)
     except Exception as exc:  # noqa: BLE001
         logger.debug("holomem: recall counts not written (%s)", type(exc).__name__)
+    budget.step("journal")
     attempt = journal.record(memory, state, ctx, "prefetch", fresh, trace, budget)
     return HEADER + "\n" + "\n".join(lines) + (f"{journal.ATTEMPT_PREFIX}{attempt}" if attempt else "")

@@ -345,7 +345,9 @@ rescoring off, and exit code 0; the reason, by its kind only, goes to `~/.hologr
 prompt on a 300-fact store on a 2020 laptop, most of it starting Python and numpy, plus one embeddings request when
 search by meaning is on; the MCP server keeps the store open, so tool calls take milliseconds after the first.
 Optional work (meaning, rescoring, the journal's receipt, `auto_extract`) takes only what the deadline leaves, so a
-slow endpoint never costs the block itself.
+slow endpoint never costs the block itself. A hook its deadline cut, or a search by meaning or rescoring call skipped
+for lack of time, logs each step's time (`open 0.20 s, turn 0.01 s, meaning …`): a busy store, a slow endpoint and a
+slow machine look alike from outside.
 
 ## Layout
 

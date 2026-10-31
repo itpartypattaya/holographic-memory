@@ -53,6 +53,7 @@ def run(event: str, client: str, payload: dict, cfg: config.Config, budget: Budg
     if event == "session-start":
         from .session import block
 
+        budget.step("open")
         memory = open_memory(cfg, ctx)
         try:
             return answer(event, block(cfg, memory, scoped_out=cfg.scope == "project" and not ctx.cwd))
@@ -66,6 +67,7 @@ def run(event: str, client: str, payload: dict, cfg: config.Config, budget: Budg
 
     if is_greeting(prompt):
         return ""
+    budget.step("open")
     memory = open_memory(cfg, ctx)
     if memory is None:
         return ""
@@ -79,6 +81,7 @@ def run(event: str, client: str, payload: dict, cfg: config.Config, budget: Budg
             if cfg.auto_extract and budget.left() >= EXTRACT_MIN_LEFT:
                 from .extract import extract
 
+                budget.step("extract")
                 extract(memory, ctx, prompt)
         finally:
             state.close()
@@ -116,7 +119,9 @@ def main(event: str, client: str, stdin: bytes) -> int:
     thread.start()
     thread.join(cfg.hook_deadline_seconds)
     if thread.is_alive():
-        logger.warning("holomem: %s hook gave up after %.1f s (store busy?)", event, cfg.hook_deadline_seconds)
+        # where the time went: a busy store, a slow endpoint and a slow machine look alike from outside
+        where = f"still in {budget.current()} ({budget.trail()})" if budget.current() else "before its first step"
+        logger.warning("holomem: %s hook gave up after %.1f s, %s", event, cfg.hook_deadline_seconds, where)
         sys.stdout.flush()
         os._exit(0)  # the worker may hold a SQLite wait; do not wait for it
     if result and result[0]:

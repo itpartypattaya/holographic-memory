@@ -798,3 +798,14 @@ def test_a_connection_that_never_comes_up_leaves_no_speed(tmp_path):
         listener.close()
     assert backoff(home) == [(60, "no answer (timeout)")]
     assert speeds(home) == []
+
+
+def test_a_call_the_deadline_leaves_no_time_for_is_logged_with_where_the_time_went(tmp_path, ranker):
+    """Too little of the hook's deadline left for a call: the off block, and the log says so with each step's time
+    (so a slow machine is told apart from a failing endpoint, which pauses instead)."""
+    home = tmp_path / "on"
+    deploy_store(home, settings(ranker, hook_deadline_seconds=1.2))  # less than RESERVE + MIN_TIMEOUT after the open
+    assert lines(recall_in(home))
+    assert ranker.requests == []
+    log = (home / "holomem.log").read_text(encoding="utf-8")
+    assert re.search(r"rescoring skipped, -?\d+\.\d s left \(open \d+\.\d\d s, turn .*search \d+\.\d\d s\)", log), log
