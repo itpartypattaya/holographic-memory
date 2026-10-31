@@ -33,7 +33,8 @@ _ENTITIES = {"type": "array", "items": {"type": "string"},
                             "facts in any word form link to it."}
 _KEYWORDS = {"type": "array", "items": {"type": "string"},
              "description": "Up to 12 words a person might ask with that the text does not contain (synonyms, other "
-                            "roots, translations). Never shown in recall."}
+                            "roots, translations), each up to 40 characters; the answer's keywords_dropped names "
+                            "any not kept. Never shown in recall."}
 _DAY = {"type": "string", "description": "YYYY-MM-DD, 'today' or 'yesterday'."}
 _DAY_KEYS = ("valid_from", "valid_to", "as_of")  # the arguments that take _DAY (Tools._days)
 _LIMIT = {"type": "integer", "minimum": 1, "maximum": _MAX_LIMIT}
@@ -210,6 +211,28 @@ def keywords(value) -> list[str]:
         if word and len(word) <= _MAX_KEYWORD_CHARS and word.casefold() not in {o.casefold() for o in out}:
             out.append(word)
     return out[:_MAX_KEYWORDS]
+
+
+def dropped_keywords(value) -> list[str]:
+    """The words of *value* keywords() leaves out: past the 12th, or longer than 40 characters. A repeat of a word kept
+    is no loss and is not named (2026-10-31: they were cut without a word, and the agent believed them stored)."""
+    items = value if isinstance(value, list) else str(value or "").split(",")
+    seen = {k.casefold() for k in keywords(value)}
+    out: list[str] = []
+    for item in items:
+        word = " ".join(item.split()).strip(" ,;") if isinstance(item, str) else ""
+        if word and word.casefold() not in seen:
+            seen.add(word.casefold())
+            out.append(word)
+    return out
+
+
+def _with_dropped(result: dict, value) -> dict:
+    """*result* with keywords_dropped when *value* (the keywords given, or joined) had words not kept."""
+    dropped = dropped_keywords(value) if value is not None else []
+    if dropped:
+        result["keywords_dropped"] = dropped
+    return result
 
 
 def split_tags(stored: str | None) -> tuple[str, list[str]]:
@@ -400,7 +423,7 @@ class Tools:
                 if check.get("similar"):  # a retelling is what merge is for (review 2026-10-31)
                     result["hint"] += (f" If it says the same as a similar one: memory_merge {{fact_id: <that id>, "
                                        f"from: [{fact_id}]}} keeps one fact.")
-        return self._unlinked(result, a)
+        return self._unlinked(_with_dropped(result, a.get("keywords")), a)
 
     def memory_change(self, a: dict) -> dict:
         content = a["content"]
@@ -416,7 +439,7 @@ class Tools:
                 tags = None  # an ended fact resumes with its last version's tags
             result = self.store.change_fact(fact_id, content, valid_from=a.get("valid_from"), tags=tags,
                                             entities=_entities(a), source=self.ctx.source("tool"))
-        return self._unlinked(dict(result), a)
+        return self._unlinked(_with_dropped(dict(result), a.get("keywords")), a)
 
     def memory_correct(self, a: dict) -> dict:
         if a.get("content") is None and not a.get("valid_from"):
@@ -466,22 +489,26 @@ class Tools:
         words = self._keyword_check(a, "merged") if a.get("keywords") is not None else None
         expect = self._expect(a, "memory_merge")
         kept: list[str] = []
+        joined_from: list = [None]  # what the keywords were joined from: what they leave out is named
 
         def joined(keep_tags: str, copy_tags: list) -> str | None:
             user_tags, own = split_tags(keep_tags)
             if words is not None:
                 kept[:] = words
+                joined_from[0] = a["keywords"]
                 return join_tags(user_tags, words)
             candidates = list(own)
             for tags in copy_tags:
                 candidates += split_tags(tags)[1]
             kept[:] = keywords(candidates)
+            joined_from[0] = candidates
             return join_tags(user_tags, kept) if candidates else None
 
         result = dict(self.store.merge_facts(keep, ids, tags=joined, expect=expect))
         for gone in (keep, *result.get("merged", ())):
             self.retriever.drop_cached(gone)
         result["keywords"] = kept
+        _with_dropped(result, joined_from[0])
         result["hint"] = (f"The merged facts are kept under #{keep}: memory_history {{fact_id: {keep}}} shows their "
                           "versions and sources, and their text is not added as a new fact again."
                           if result.get("merged") else f"These facts were part of #{keep} already; nothing changed.")
@@ -512,6 +539,7 @@ class Tools:
         result: dict = {"updated": updated}
         if updated and a.get("keywords") is not None:
             result["keywords"] = words
+            _with_dropped(result, a["keywords"])
         return result
 
     def memory_feedback(self, a: dict) -> dict:

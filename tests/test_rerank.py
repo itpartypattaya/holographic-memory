@@ -800,12 +800,32 @@ def test_a_connection_that_never_comes_up_leaves_no_speed(tmp_path):
     assert speeds(home) == []
 
 
-def test_a_call_the_deadline_leaves_no_time_for_is_logged_with_where_the_time_went(tmp_path, ranker):
+def test_a_call_the_deadline_leaves_no_time_for_is_logged_with_where_the_time_went(tmp_path, ranker, monkeypatch,
+                                                                                   caplog):
     """Too little of the hook's deadline left for a call: the off block, and the log says so with each step's time
-    (so a slow machine is told apart from a failing endpoint, which pauses instead)."""
+    (so a slow machine is told apart from a failing endpoint, which pauses instead). In this process, with the store
+    already open and 1 s left (less than RESERVE + MIN_TIMEOUT): a hook process with a short deadline gave up whole
+    on a loaded machine, where opening the store alone took over a second."""
+    import logging
+
+    from holomem import config
+    from holomem.memory import Context, open_memory
+    from holomem.recall import Budget, recall
+    from holomem.state import State
+
     home = tmp_path / "on"
-    deploy_store(home, settings(ranker, hook_deadline_seconds=1.2))  # less than RESERVE + MIN_TIMEOUT after the open
-    assert lines(recall_in(home))
+    deploy_store(home, settings(ranker))
+    monkeypatch.setenv("HOLOMEM_HOME", str(home))
+    cfg = config.load()
+    ctx = Context(client="claude-code", session_id="s1")
+    memory, state = open_memory(cfg, ctx), State(cfg.state_path)
+    try:
+        with caplog.at_level(logging.WARNING, logger="holomem"):
+            block = recall(memory, state, ctx, ASK, Budget.seconds(1.0))
+    finally:
+        state.close()
+        memory.close()
+    assert lines(block)
     assert ranker.requests == []
-    log = (home / "holomem.log").read_text(encoding="utf-8")
-    assert re.search(r"rescoring skipped, -?\d+\.\d s left \(open \d+\.\d\d s, turn .*search \d+\.\d\d s\)", log), log
+    assert re.search(r"rescoring skipped, \d+\.\d s left \(turn \d+\.\d\d s, meaning .*search \d+\.\d\d s\)",
+                     caplog.text), caplog.text

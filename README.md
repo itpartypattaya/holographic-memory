@@ -131,7 +131,7 @@ The agents' own memory files are not changed.
 
 | Tool | What it does |
 |------|--------------|
-| `memory_add` | store one short standalone sentence; `entities` for one-word names, `keywords` for words someone might ask with, `origin` said / confirmed / inferred. The answer lists similar facts and possible conflicts |
+| `memory_add` | store one short standalone sentence; `entities` for one-word names, `keywords` for words someone might ask with (up to 12 of 40 characters; `keywords_dropped` in the answer names any not kept, here and in change, merge and update), `origin` said / confirmed / inferred. The answer lists similar facts and possible conflicts |
 | `memory_search` | find facts by words in any word form and language; `as_of` for what held on a day; with search by meaning, also by meaning (`match: "meaning"`); with rescoring, in its order |
 | `memory_probe` / `memory_related` | everything about a person or thing / facts structurally related to it (HRR) |
 | `memory_reason` | facts that involve all of the named people or things |
