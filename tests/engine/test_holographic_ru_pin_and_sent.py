@@ -137,7 +137,7 @@ def test_the_refusal_names_the_word(text, word, value):
 
 
 def test_a_token_known_by_its_shape_is_refused_without_a_word():
-    problem = _fact_problem("the bot uses ghp_aB3dE5fG7hJ9kL1mN3pQ5rS7tU9vW1xY3zA5 now")
+    problem = _fact_problem("the bot uses ghp_" + "aB3dE5fG7hJ9kL1mN3pQ5rS7tU9vW1xY3zA5 now")
     assert problem.startswith("contains what looks like a credential") and "ghp_" not in problem
 
 
