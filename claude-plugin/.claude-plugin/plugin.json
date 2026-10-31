@@ -1,6 +1,6 @@
 {
   "name": "holographic-memory",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "Long-term local memory for Claude Code: a SQLite fact store with trust scoring and holographic recall, recalled before each turn, with memory tools over MCP. Needs the holomem command on PATH.",
   "author": {"name": "itpartypattaya"},
   "homepage": "https://github.com/itpartypattaya/holographic-memory",
