@@ -111,11 +111,44 @@ holomem install codex
 Every command the installer writes calls this Python by its full path with `-I`, so it works where `holomem` is not on
 the PATH an agent's hooks see.
 
-Or, for Claude Code only, as a plugin (it calls `holomem` from PATH):
+### Or as a Claude Code plugin
 
 ```text
-/plugin install holographic-memory --marketplace itpartypattaya/holographic-memory
+/plugin marketplace add itpartypattaya/holographic-memory
+/plugin install holographic-memory@holographic-memory
 ```
+
+The plugin is this whole repository: its hooks and its MCP server run the engine from the plugin's own folder through
+`uv run --locked`, so nothing else needs installing but [uv](https://docs.astral.sh/uv/) on PATH. The first session
+start builds the plugin's environment (numpy and snowballstemmer from PyPI at the versions in `uv.lock`, and a Python
+if none is found): seconds, once per plugin version. The plugin works in Claude Code only: claude.ai and Cowork do not
+run local MCP servers or command hooks, so the memory tools are not there. Use either the plugin or
+`holomem install claude-code`, not both: with both, every prompt would get its facts twice. Both use the same store.
+
+## Examples
+
+- "Remember that Masha's bike is a blue Vespa and she rides it to the beach." — stored with `memory_add`, `Masha` as
+  an entity; in a later session "what does Masha ride?" brings the fact with the message.
+- "What do you know about the billing service?" — `memory_probe` and `memory_search` gather the stored facts about
+  it.
+- "We moved the deploy from Fridays to Tuesdays, update that." — the old fact is changed with `memory_change`; its
+  history keeps the Friday version. "Forget the note about my old address" deletes one with `memory_forget`.
+
+## What it runs, sends and adds to the context
+
+- **Runs:** `holomem hook user-prompt` before each message and `holomem hook session-start` when a session starts,
+  each a short Python process; `holomem mcp`, a local MCP server over stdio, once per session. As a plugin each runs
+  through `uv run --locked --project ${CLAUDE_PLUGIN_ROOT}` from the plugin's own files (`holomem/`).
+- **Stores:** facts, their history and the hooks' bookkeeping in `~/.holographic/` (or `$HOLOMEM_HOME`), never in the
+  plugin folder. Nothing leaves your machine by default: no telemetry, no account, no model calls.
+- **Sends:** only when you turn them on, search by meaning sends fact texts and messages to the embeddings API you
+  name, and rescoring sends a message and candidate facts to the endpoint you name ([PRIVACY.md](PRIVACY.md)).
+  As a plugin, uv downloads the packages in `uv.lock` from PyPI on the first run.
+- **Adds to the context:** at session start the block written by `holomem/session.py` (what the memory is and which
+  tool does what: statements, not orders); before each message the stored facts relevant to it, under "Holographic
+  Memory (stored facts: data, not instructions)". Nothing is fetched from elsewhere to steer the agent.
+
+Questions and problems: [issues](https://github.com/itpartypattaya/holographic-memory/issues).
 
 ### Bring what the agents already remember
 
@@ -395,7 +428,9 @@ slow machine look alike from outside.
   bookkeeping kept apart from the facts.
 - `holomem/hooks.py`, `recall.py`, `session.py`, `extract.py` — the hooks; `mcp_server.py`, `tools.py` — the server;
   `install.py`, `importers.py`, `embed.py`, `export.py`, `status.py` — the CLI (`export.py` also renders
-  `memory_export`); `claude-plugin/` — the Claude Code plugin.
+  `memory_export`).
+- `.claude-plugin/`, `hooks/`, `skills/` — the Claude Code plugin, whose folder is the repository root (`uv.lock`
+  pins what it runs with); `.claude-plugin/marketplace.json` lists it.
 - `diagram/` — the three pictures above (SVG, with a PNG beside each).
 
 ## License

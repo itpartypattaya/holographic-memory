@@ -1,5 +1,5 @@
-* text=auto eol=lf
+# No rule here rewrites file contents (the Claude plugin directory will not validate a repository with one):
+# text files are committed with LF, which tests/test_line_endings.py checks in the index.
 *.gz binary
-*.ps1 text eol=crlf
 # vendored byte for byte (ENGINE.json hashes the bytes of the plugin tag): no line-ending conversion
 holomem/engine/** -text

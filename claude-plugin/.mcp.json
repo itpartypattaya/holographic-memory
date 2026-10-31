@@ -1,5 +1,0 @@
-{
-  "mcpServers": {
-    "holographic": {"command": "holomem", "args": ["mcp", "--client", "claude-code"]}
-  }
-}
