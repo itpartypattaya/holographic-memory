@@ -1,6 +1,6 @@
 # holographic-memory
 
-A universal long-term memory for AI agents — today **Claude Code** and **Codex CLI**. A local SQLite fact store with
+A universal long-term memory for AI agents — today **Claude Code** and **Codex** (CLI and desktop app). A local SQLite fact store with
 FTS5 search in 18 languages, trust scoring, entity resolution, fact history and HRR (holographic reduced
 representation) recall, recalled before each message and managed through memory tools. By default everything stays on
 your machine: no API key, no network, no model calls. Search by meaning and rescoring are opt-in extras that send text
@@ -99,7 +99,9 @@ holomem install codex
   Codex runs a hook only once you trust it: open `/hooks` in Codex and trust the two holographic hooks (again after
   every reinstall that changes their command). `--approval auto|writes|prompt` sets when Codex asks before a memory
   tool runs (default: never). Codex 0.163 does not run `mcp_tool` hooks ("MCP hooks are not supported"), so it always
-  recalls through the command hook.
+  recalls through the command hook. The Codex desktop app reads the same `~/.codex/config.toml`, so the one install
+  serves both: checked on 31 October 2026 with the app 26.1027 (codex 0.166), which ran both hooks and started the
+  memory server, on the store Claude Code uses.
 - `--scope project --project <dir>` writes to that project only (`.claude/settings.local.json`, `.codex/config.toml`).
 - A changed file is backed up next to itself (`*.bak-<time>`); `holomem install <client> --uninstall` removes exactly
   what install added. `holomem status` shows what is installed, the store and the number of facts, whether search by
@@ -139,7 +141,7 @@ The agents' own memory files are not changed.
 
 ### Other agents
 
-`holomem install` sets up Claude Code and Codex CLI, which get both the memory tools (MCP) and the recall before each
+`holomem install` sets up Claude Code and Codex (CLI and desktop app), which get both the memory tools (MCP) and the recall before each
 message (hooks). Another agent that runs local MCP servers can use the memory tools today, on the same store:
 register `holomem mcp --client claude-code` as a stdio server in it (the client name only labels where a fact was
 written). It gets no recall before each message, though: its hooks speak another format, or none of them adds
