@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "holographic-memory"
-version = "0.6.1"
+version = "0.7.0"
 description = "Holographic memory (local SQLite fact store with FTS5, trust scoring and HRR recall) for Claude Code and Codex CLI"
 requires-python = ">=3.11"
 license = { text = "MIT" }
