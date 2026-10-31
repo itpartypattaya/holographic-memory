@@ -23,6 +23,7 @@ most 2 x 50 ms for another process: it is optional, the recall is not.
 from __future__ import annotations
 
 import contextlib
+import re
 import sqlite3
 import time
 from pathlib import Path
@@ -40,6 +41,7 @@ CREATE TABLE IF NOT EXISTS attempts (
     attempt_id TEXT PRIMARY KEY, session TEXT NOT NULL, client TEXT NOT NULL, db TEXT NOT NULL, created REAL NOT NULL);
 CREATE INDEX IF NOT EXISTS attempts_db ON attempts (db, created);
 """
+_NAMES = frozenset(re.findall(r"CREATE (?:TABLE|INDEX) IF NOT EXISTS (\w+)", _SCHEMA))
 _KEEP_DAYS, _KEEP_SESSIONS, _KEEP_FACTS = 14, 200, 512
 _ATTEMPT_DAYS = 30  # the engine's journal TTL (experience.TTL): a link outlives no receipt
 _BUSY_MS, _LINK_BUSY_MS, _LINK_TRIES = 5000, 50, 2  # the connection's wait / a journal write's, as the engine's receipt
@@ -72,7 +74,12 @@ class State:
         # check_same_thread off: the MCP server uses it from its main thread and its vectors thread, one at a time
         # (under the server's lock)
         self._conn = sqlite3.connect(str(path), timeout=_BUSY_MS / 1000, isolation_level=None, check_same_thread=False)
-        self._conn.executescript(_SCHEMA)
+        have = {row[0] for row in self._conn.execute("SELECT name FROM sqlite_master WHERE type IN ('table', 'index')")}
+        if not _NAMES <= have:
+            # one transaction for the whole schema, not one per statement: in rollback mode each creates and deletes
+            # a journal file, and on Windows that can wait on the virus scanner (a hook stood 5 s here on the CI
+            # runner); a state.db that has its tables is only read, and waits for no other process's write lock
+            self._conn.executescript("BEGIN IMMEDIATE;" + _SCHEMA + "COMMIT;")
         self._move_pauses()
 
     def _move_pauses(self) -> None:
