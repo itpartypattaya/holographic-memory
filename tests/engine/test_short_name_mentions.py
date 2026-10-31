@@ -69,3 +69,33 @@ def test_a_name_with_yo_is_still_found_as_written(store):
     store.add_fact_status("Ёся любит чай", entities=["Ёся"])
     assert store.mentioned_entity_ids("Ёся любит чай") == set(store.entity_ids("Ёся"))
     assert store.mentioned_entity_ids("Позови Ёсю") == set(store.entity_ids("Ёся"))
+
+
+@pytest.mark.parametrize("text, name", [
+    ("Аню надо встретить на вокзале", "Аня"),  # opening a sentence
+    ("аню надо встретить на вокзале", "Аня"),  # typed in lower case
+    ("расскажи про аню", "Аня"),
+    ("Вчера. Иру позови к ужину", "Ира"),
+    ("* Олю спроси про билеты", "Оля"),
+    ("с яной договорились", "Яна"),
+])
+def test_a_short_name_opening_a_sentence_or_in_lower_case_mentions_it(store, text, name):
+    """2026-10-31: a short name at the start of a sentence («Аню надо…») or in lower case («про аню») found no one.
+    A short name none of whose forms is an ordinary word is read by its case ending wherever it stands."""
+    store.add_fact_status(f"{name} учится в школе", entities=[name])
+    assert store.mentioned_entity_ids(text) == set(store.entity_ids(name))
+
+
+@pytest.mark.parametrize("text, name", [
+    ("Тому, кто спросит, скажи нет", "Тома"),
+    ("Улей стоит у забора", "Уля"),
+    ("в мае поедем на море", "Мая"),
+    ("Иву посадили у пруда", "Ива"),
+    ("к аду и обратно", "Ада"),
+    ("Рою яму у дома", "Рой"),
+])
+def test_a_name_whose_forms_are_ordinary_words_still_waits_for_a_capital_inside_a_sentence(store, text, name):
+    """«тому», «улей», «мае», «иву», «аду», «рою» are ordinary words: such a name is read by its ending only where
+    it is written with a capital inside a sentence."""
+    store.add_fact_status(f"{name} работает в порту", entities=[name])
+    assert store.mentioned_entity_ids(text) == set()

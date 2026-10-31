@@ -40,6 +40,17 @@ def _in_a_row(words: list[str], name: list[str]) -> bool:
     return n > 0 and any(words[i:i + n] == name for i in range(len(words) - n + 1))
 
 
+def _name_reading(word, capitals: set[str]) -> frozenset:
+    """The names an unstemmed word is a case form of (name_lemmas): any, where it is written with a capital inside a
+    sentence; only _PLAIN_NAMES where it opens one or is in lower case («Рою яму» is no «Рой», «Аню надо…» is Аня)."""
+    if word.keys != {word.text} or word.stop:
+        return frozenset()
+    lemmas = name_lemmas(word.text)
+    if word.text not in capitals:
+        lemmas = lemmas & _PLAIN_NAMES
+    return _with_yo(lemmas, word.text) if lemmas else frozenset()
+
+
 def _capitals_inside(text: str) -> set[str]:
     """The words (lower-cased) *text* writes with a capital somewhere other than at the start of a sentence: a name,
     not a word that merely opens one («Рою яму»), a list item («* Рою», «1) Рою»), a quote or what follows a colon
@@ -50,6 +61,15 @@ def _capitals_inside(text: str) -> set[str]:
         if m.group()[:1].isupper() and before and before[-1] not in ".!?…:;\n\r*•·)":
             out.add(m.group().lower())
     return out
+
+
+# Short Russian names (no stem: every form is only its own key) none of whose case forms is an ordinary word, read by
+# their ending wherever they stand: «Аню надо…» opening a sentence, «аню» typed in lower case (2026-10-31).
+# Checked form by form; left out because a form is an ordinary word: Ада (аду, ада), Тома (тому, томе), Ива (иву),
+# Мая (мае, маю), Уля (улей), Ия (ии), Рой, Лев. Longer names have a stem and are found so already. As name_lemmas
+# reads them: ё as е.
+_PLAIN_NAMES = frozenset({"ева", "ира", "оля", "яна", "ян", "аня", "ася", "юля", "зоя", "яша", "илья", "юра", "инна",
+                          "эля", "анна", "еся"})
 
 
 def _with_yo(lemmas: frozenset, word: str) -> frozenset:
@@ -607,6 +627,18 @@ class EntityMixin:
             self._write("INSERT OR IGNORE INTO fact_entities (fact_id, entity_id) VALUES (?, ?)", (fact_id, entity_id))
         self._link_declared(fact_id, declared)
 
+    def declare(self, fact_id: int, declared) -> bool:
+        """Declare names on a current fact, its text untouched (_declare in a transaction of its own): an add of a text
+        merged into *fact_id* names who it is about too (2026-10-31: the merged answer dropped them). False when the
+        fact is no longer current (forgotten, ended or merged meanwhile): nothing is linked."""
+        if not declared:
+            return False
+        with self._tx():
+            if self._one("SELECT 1 FROM facts WHERE fact_id = ?", (int(fact_id),)) is None:
+                return False
+            self._declare(int(fact_id), declared)
+            return True
+
     def _declare(self, fact_id: int, declared) -> None:
         """Declare names on a fact whose text stays as it is (0.17.0: an add of a text already stored, a correct that
         changes no text, a change into a text another fact holds): until 0.16.3 such declarations were dropped."""
@@ -692,17 +724,16 @@ class EntityMixin:
         ("Alice\nSmith" and "Alice, Smith" do not mention Alice Smith). A Cyrillic word too short for a stem («Иру»,
         «Яном») and written with a capital is read by its case ending instead (name_lemmas, as names_fit reads it;
         2026-10-31: «Расскажи про Иру» found no Ира) as well as by its own keys («Ёся» as written), and then meets a
-        name as written, not its stem: «Яном» is «Ян», not «Яна» (stem «ян»). A stopword, a word in lower case or
-        one opening a sentence never is read so: «рою» / «Рою яму» are not «Рой», «даю» not «Дай» (Codex review
-        2026-10-31); «иру» in lower case keeps its own keys only, as before."""
+        name as written, not its stem: «Яном» is «Ян», not «Яна» (stem «ян»). A stopword never is read so, and a
+        word in lower case or opening a sentence only as a short name none of whose forms is an ordinary word
+        (_PLAIN_NAMES: «Аню надо…», «про аню» are Аня; «рою» / «Рою яму» are not «Рой», «даю» not «Дай»)."""
         text = unicodedata.normalize("NFKC", text or "")
         index = self._known_entities()
         found = set()
         capitals = _capitals_inside(text)
         for stretch in _mention_stretches(text):
             sequence = analyze(stretch).words
-            lemmas = [_with_yo(name_lemmas(w.text), w.text) if w.keys == {w.text} and not w.stop and
-                      w.text in capitals else frozenset() for w in sequence]
+            lemmas = [_name_reading(w, capitals) for w in sequence]
             keys = [w.keys | lemmas[i] for i, w in enumerate(sequence)]
             for i in range(len(sequence)):
                 for first in keys[i]:

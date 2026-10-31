@@ -13,7 +13,7 @@ What it does:
   staging with systemd`. Up to five facts that cover the message's words (any word form), with search by meaning on
   one more that shares no word with it, plus two about a person or thing it names; a fact already shown in this
   session is not repeated for six turns; "ok thanks" or `/compact` costs nothing.
-- **Twenty-two memory tools** over a local MCP server (below): store, search, change with history, merge duplicates,
+- **Twenty-three memory tools** over a local MCP server (below): store, search, change with history, merge duplicates,
   maintain names, forget, export, and a journal of how recall served you. A text that is an instruction or holds a
   credential is refused; a new fact that may contradict an old one comes back with `possible_conflicts`.
 - **One store for every agent** by default (`~/.holographic/memory_store.db`): what you told Claude Code, Codex
@@ -55,9 +55,11 @@ Two filters keep stray facts out, both measured on a live store and both judged 
   A fact that comes by a name alone is now kept only when meaning backs it, as above.
 
 Names are read in any case: "Tell me about Ira" in Russian (Иру, Ирой, Иры) finds the entity «Ира» by the case
-ending, as a stem cannot read a three-letter word; «Яном» is «Ян», not «Яна», while «Яну» may be either. Only a word
-written with a capital inside a sentence is read so: «рою» and «Рою яму» stay a verb, not the name «Рой» (so «Иру»
-opening a sentence is not read either; «Ира» is).
+ending, as a stem cannot read a three-letter word; «Яном» is «Ян», not «Яна», while «Яну» may be either. A short
+name none of whose forms is an ordinary word (Ева, Ира, Оля, Яна, Ян, Аня, Ася, Юля, Зоя, Яша, Илья, Юра, Инна, Эля,
+Анна, Ёся) is read so wherever it stands: «Аню надо…» opening a sentence, «про аню» in lower case. Any other word only
+where it is written with a capital inside a sentence: «рою» and «Рою яму» stay a verb, not the name «Рой»; «тому»,
+«улей», «в мае» are not Тома, Уля, Мая.
 
 And one setting for the person the memory belongs to: you are named in many messages ("Mark asked to fix the
 script"), so `self_names = ["Mark"]` stops your name from pulling your facts by itself. A question about you still
@@ -140,6 +142,7 @@ The agents' own memory files are not changed.
 | `memory_update` | give a fact keywords or another category (not a new text) |
 | `memory_enrich` | facts without keywords, the most recalled first, to give some |
 | `memory_entities` / `memory_entity` | known names with aliases / `alias` (one person, two names), `rename`, `delete` (a name that is not one; the facts stay), `split` |
+| `memory_contradict` | pairs of facts about the same person or thing that say different things ("lives in Lisbon" / "lives in Porto", a changed number, a flipped preference), strongest first; `category`, `min_trust`, `limit`. Candidates for the person to judge, then `memory_correct` / `memory_end` / `memory_change` the one that does not hold; changes nothing |
 | `memory_review` | clean-up candidates with a reason (low trust, never recalled, an unconfirmed inference, a near-duplicate to merge) and names nobody confirmed; changes nothing |
 | `memory_list` / `memory_stats` | facts by trust / counts, categories, origins, the state of search by meaning and rescoring |
 | `memory_export` | the store as one Markdown page for a review ([below](#export)); `category`, `min_trust`, `limit` (default 100, at most 1000) |

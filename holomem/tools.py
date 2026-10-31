@@ -12,8 +12,6 @@ its words found are rescored (rescore.py) before those by meaning are added afte
 With ``experience`` on, memory_search answers with the receipt of what it offered (``memory_attempt``) and
 memory_experience — listed only then — explains an attempt and records the agent's report of how it turned out
 (``journal.py``).
-
-Not in the bridge (yet): contradict.
 """
 from __future__ import annotations
 
@@ -135,6 +133,19 @@ SCHEMAS = [
     {"name": "memory_review", "description": "Clean-up candidates, each with a reason (low trust, never recalled, "
      "near-duplicates to merge), and names nobody confirmed. Advisory: nothing is changed.", "readOnly": True,
      "inputSchema": {"type": "object", "properties": {"limit": _LIMIT}}},
+    {"name": "memory_contradict", "description": "Stored facts that contradict each other: pairs about the same "
+     "person or thing (shared names) making different claims ('lives in Lisbon' / 'lives in Porto', a changed number, "
+     "a flipped preference), strongest first, each with both facts, the shared names and a score. Call it when the "
+     "person asks what in memory contradicts itself, or before a clean-up. Lexical candidates, not verdicts: ask the "
+     "person which holds, then memory_correct the wrong one, memory_end the one that no longer holds (or "
+     "memory_change the older into the newer: one history), memory_merge if they say the same; if both hold, leave "
+     "them. Only facts linked to a name are compared; the 500 most recently changed. Advisory: nothing is changed.",
+     "readOnly": True,
+     "inputSchema": {"type": "object", "properties": {
+         "category": {"type": "string"},
+         "min_trust": {"type": "number", "description": "Leave out facts below this trust (default 0: every fact, "
+                                                         "the doubtful ones too)."},
+         "limit": _LIMIT}}},
     {"name": "memory_entities", "description": "Known names with aliases and fact counts; 'provisional' = guessed from "
      "one fact, nobody confirmed.", "readOnly": True,
      "inputSchema": {"type": "object", "properties": {
@@ -362,6 +373,7 @@ class Tools:
         if not store.read("SELECT 1 FROM facts WHERE content = ?", (content,)):
             merged = store.merged_match(content)
             if merged is not None:
+                store.declare(merged["fact_id"], _entities(a))  # who it is about still counts, as for an add that exists
                 return {"fact_id": merged.get("fact_id"), "status": "merged", "stored": False,
                         "hint": "This text was merged into the fact named here, which says the same."}
             past = store.past_version(content)
@@ -385,6 +397,9 @@ class Tools:
                 result["hint"] = (f"If one of these changed into the new fact: memory_forget {{fact_id: {fact_id}}} "
                                   "and memory_change {fact_id: <old id>, content} instead (one history); if the old "
                                   "one was wrong, memory_correct it; if both hold, keep both.")
+                if check.get("similar"):  # a retelling is what merge is for (review 2026-10-31)
+                    result["hint"] += (f" If it says the same as a similar one: memory_merge {{fact_id: <that id>, "
+                                       f"from: [{fact_id}]}} keeps one fact.")
         return self._unlinked(result, a)
 
     def memory_change(self, a: dict) -> dict:
@@ -629,6 +644,18 @@ class Tools:
                          "{action: alias, name, other}; two: {action: split, name: <alias>}.")
         if hints:
             result["hint"] = " ".join(hints)
+        return result
+
+    def memory_contradict(self, a: dict) -> dict:
+        """The engine's candidate conflicts (retrieval.contradict): pairs of current facts about one subject."""
+        pairs = self.retriever.contradict(category=a.get("category") or None, min_trust=float(a.get("min_trust", 0.0)),
+                                          limit=_limit(a))
+        result: dict = {"pairs": pairs, "count": len(pairs)}
+        if pairs:
+            result["hint"] = ("Ask the person which of each pair holds: memory_correct the wrong one, memory_end the "
+                              "one that no longer holds (or memory_change {fact_id: <older>, content: <newer text>} "
+                              "and memory_forget the newer: one history), memory_merge if they say the same; if both "
+                              "hold, leave them.")
         return result
 
     def memory_entities(self, a: dict) -> dict:
