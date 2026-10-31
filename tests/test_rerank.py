@@ -502,7 +502,44 @@ def test_plain_http_to_a_public_host_is_unavailable_and_sends_nothing(home):
 
 # -- 8. the hook's deadline bounds the call ---------------------------------------------------------------------------
 
-def test_a_short_deadline_cuts_the_call_and_still_gives_the_off_block(tmp_path, ranker):
+def test_a_short_deadline_cuts_the_call_and_still_gives_the_off_block(tmp_path, ranker, monkeypatch):
+    """With 2.5 s left and rerank_timeout 10 the call to a silent endpoint is made and cut within what is left, and
+    the block is rerank off's. In this process, with the store already open: in a hook process on a loaded machine
+    opening the store took 1.4 s, the call was rightly not made, and the test failed on the machine, not the code
+    (2026-10-31). The hook process itself: next test."""
+    from holomem import config
+    from holomem.memory import Context, open_memory
+    from holomem.recall import Budget, recall
+    from holomem.state import State
+
+    off, on = tmp_path / "off", tmp_path / "on"
+    deploy_store(off, settings(None))
+    expected = recall_in(off)
+    deploy_store(on, settings(ranker, rerank_timeout=10.0))
+    ranker.mode = "silent"
+    monkeypatch.setenv("HOLOMEM_HOME", str(on))
+    cfg = config.load()
+    ctx = Context(client="claude-code", session_id="s1")
+    memory, state = open_memory(cfg, ctx), State(cfg.state_path)
+    try:
+        started = time.monotonic()
+        block = recall(memory, state, ctx, ASK, Budget.seconds(2.5))
+        elapsed = time.monotonic() - started
+    finally:
+        state.close()
+        memory.close()
+    assert lines(expected) and lines(block) == lines(expected)  # the deadline did not take the block with it
+    assert elapsed < 2.5, elapsed
+    assert len(ranker.requests) == 1
+    deadline = time.monotonic() + 5
+    while not ranker.closed_after and time.monotonic() < deadline:
+        time.sleep(0.05)
+    assert ranker.closed_after and ranker.closed_after[0] < 2.5
+
+
+def test_a_hook_with_a_short_deadline_and_a_silent_endpoint_ends_in_time_with_the_off_block(tmp_path, ranker):
+    """The hook process: its deadline counts from the worker's start (after Python's own), and what the silent
+    endpoint costs never takes the ready block with it, whether or not the open left time for the call."""
     off, on = tmp_path / "off", tmp_path / "on"
     deploy_store(off, settings(None))
     expected = recall_in(off)
@@ -511,13 +548,8 @@ def test_a_short_deadline_cuts_the_call_and_still_gives_the_off_block(tmp_path, 
     started = time.monotonic()
     proc = hook(on, "user-prompt", prompt(ASK))
     elapsed = time.monotonic() - started
-    assert context(proc) == expected  # not empty: the deadline did not take the ready block with it
-    assert elapsed < 2.5 + 1.0, elapsed  # the deadline counts from the worker's start, after Python's own
-    assert len(ranker.requests) == 1
-    deadline = time.monotonic() + 5
-    while not ranker.closed_after and time.monotonic() < deadline:
-        time.sleep(0.05)
-    assert ranker.closed_after and ranker.closed_after[0] < 2.5
+    assert context(proc) == expected
+    assert elapsed < 2.5 + 1.0, elapsed
 
 
 # -- 9. memory_recall through the server ------------------------------------------------------------------------------

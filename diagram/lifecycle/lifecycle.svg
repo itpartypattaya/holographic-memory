@@ -96,7 +96,7 @@
 
   <!-- side panel -->
   <g transform="translate(880, 105)">
-    <rect x="0" y="0" width="230" height="250" rx="8" fill="none" stroke="#475569" stroke-width="1" stroke-dasharray="4,4"/>
+    <rect x="0" y="0" width="230" height="312" rx="8" fill="none" stroke="#475569" stroke-width="1" stroke-dasharray="4,4"/>
     <text x="14" y="22" fill="#e2e8f0" font-size="9.5" font-weight="600">Changes that keep the state</text>
     <text x="14" y="46" fill="#93c5fd" font-size="8.5" font-weight="600">memory_update</text>
     <text x="14" y="60" fill="#94a3b8" font-size="8">keywords, category; the fact's</text>
@@ -111,6 +111,10 @@
     <text x="14" y="210" fill="#94a3b8" font-size="8">low trust, never recalled,</text>
     <text x="14" y="222" fill="#94a3b8" font-size="8">near-duplicates to merge;</text>
     <text x="14" y="234" fill="#94a3b8" font-size="8">it changes nothing itself</text>
+    <text x="14" y="258" fill="#93c5fd" font-size="8.5" font-weight="600">memory_contradict</text>
+    <text x="14" y="272" fill="#94a3b8" font-size="8">pairs of current facts that say</text>
+    <text x="14" y="284" fill="#94a3b8" font-size="8">different things, for the person</text>
+    <text x="14" y="296" fill="#94a3b8" font-size="8">to judge; changes nothing</text>
   </g>
 
   <!-- title -->

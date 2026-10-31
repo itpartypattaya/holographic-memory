@@ -99,3 +99,36 @@ def test_a_name_whose_forms_are_ordinary_words_still_waits_for_a_capital_inside_
     it is written with a capital inside a sentence."""
     store.add_fact_status(f"{name} работает в порту", entities=[name])
     assert store.mentioned_entity_ids(text) == set()
+
+
+@pytest.mark.parametrize("name, text", [
+    ("Эля", "К элю подали сыр"),  # Codex review 2026-10-31: эль, ale
+    ("Эля", "в эле много хмеля"),
+    ("Юля", "я не юлю, честно"),  # юлить
+    ("Юля", "дети играли на юле"),  # юла
+])
+def test_a_form_of_a_short_name_that_is_an_ordinary_word_in_lower_case_mentions_no_one(store, name, text):
+    store.add_fact_status(f"{name} любит чай", entities=[name])
+    assert store.mentioned_entity_ids(text) == set(), text
+
+
+@pytest.mark.parametrize("name, text", [
+    ("Эля", "поговори с элей"),  # a form no ordinary word has: read in lower case still
+    ("Эля", "Позови Элю к ужину"),  # with a capital inside a sentence
+    ("Эля", "Элю надо встретить"),  # with a capital opening one: the name, not the ale
+    ("Юля", "Юлю надо забрать из школы"),
+    ("Юля", "подарок для юли"),
+    ("Ян", "Вчера. Ян пришёл"),
+])
+def test_the_same_names_are_still_read_where_the_word_is_no_ordinary_one(store, name, text):
+    store.add_fact_status(f"{name} любит чай", entities=[name])
+    assert store.mentioned_entity_ids(text) == set(store.entity_ids(name)), text
+
+
+@pytest.mark.xfail(strict=True, reason="known: a word in lower case written exactly as a name (its nominative) meets "
+                                       "the name by its own key, as every name always has; only other case forms "
+                                       "are read by the ending, which is what _ORDINARY_FORMS holds back")
+@pytest.mark.parametrize("name, text", [("Эля", "кружка эля и сыр"), ("Ян", "инь и ян")])
+def test_a_name_as_written_in_lower_case_that_is_an_ordinary_word_mentions_no_one(store, name, text):
+    store.add_fact_status(f"{name} любит чай", entities=[name])
+    assert store.mentioned_entity_ids(text) == set(), text

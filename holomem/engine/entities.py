@@ -40,14 +40,17 @@ def _in_a_row(words: list[str], name: list[str]) -> bool:
     return n > 0 and any(words[i:i + n] == name for i in range(len(words) - n + 1))
 
 
-def _name_reading(word, capitals: set[str]) -> frozenset:
+def _name_reading(word, capitals: set[str], written_capital: set[str]) -> frozenset:
     """The names an unstemmed word is a case form of (name_lemmas): any, where it is written with a capital inside a
-    sentence; only _PLAIN_NAMES where it opens one or is in lower case («Рою яму» is no «Рой», «Аню надо…» is Аня)."""
+    sentence; only _PLAIN_NAMES where it opens one or is in lower case («Рою яму» is no «Рой», «Аню надо…» is Аня),
+    and of those a form that is an ordinary word too (_ORDINARY_FORMS: «к элю», ale) only written with a capital."""
     if word.keys != {word.text} or word.stop:
         return frozenset()
     lemmas = name_lemmas(word.text)
     if word.text not in capitals:
         lemmas = lemmas & _PLAIN_NAMES
+        if word.text in _ORDINARY_FORMS and word.text not in written_capital:
+            return frozenset()
     return _with_yo(lemmas, word.text) if lemmas else frozenset()
 
 
@@ -63,13 +66,16 @@ def _capitals_inside(text: str) -> set[str]:
     return out
 
 
-# Short Russian names (no stem: every form is only its own key) none of whose case forms is an ordinary word, read by
-# their ending wherever they stand: «Аню надо…» opening a sentence, «аню» typed in lower case (2026-10-31).
-# Checked form by form; left out because a form is an ordinary word: Ада (аду, ада), Тома (тому, томе), Ива (иву),
+# Short Russian names (no stem: every form is only its own key) read by their ending wherever they stand: «Аню
+# надо…» opening a sentence, «аню» typed in lower case (2026-10-31). Checked form by form; left out because a common
+# form is an ordinary word: Ада (аду, ада), Тома (тому, томе), Ива (иву),
 # Мая (мае, маю), Уля (улей), Ия (ии), Рой, Лев. Longer names have a stem and are found so already. As name_lemmas
 # reads them: ё as е.
 _PLAIN_NAMES = frozenset({"ева", "ира", "оля", "яна", "ян", "аня", "ася", "юля", "зоя", "яша", "илья", "юра", "инна",
                           "эля", "анна", "еся"})
+# Forms of those names that are ordinary words too (Codex review 2026-10-31: «К элю подали сыр» was Эля): эль (эля, элю,
+# эле), юла and юлить (юле, юлю), инь и ян. In lower case they are the word; written with a capital, the name.
+_ORDINARY_FORMS = frozenset({"эля", "элю", "эле", "юле", "юлю", "ян"})
 
 
 def _with_yo(lemmas: frozenset, word: str) -> frozenset:
@@ -627,17 +633,20 @@ class EntityMixin:
             self._write("INSERT OR IGNORE INTO fact_entities (fact_id, entity_id) VALUES (?, ?)", (fact_id, entity_id))
         self._link_declared(fact_id, declared)
 
-    def declare(self, fact_id: int, declared) -> bool:
-        """Declare names on a current fact, its text untouched (_declare in a transaction of its own): an add of a text
-        merged into *fact_id* names who it is about too (2026-10-31: the merged answer dropped them). False when the
-        fact is no longer current (forgotten, ended or merged meanwhile): nothing is linked."""
-        if not declared:
-            return False
+    def declare_merged(self, text: str, declared) -> dict | None:
+        """merged_match(*text*), and the names *declared* linked to its keep in the same transaction: an add of a text
+        merged into a fact names who it is about too (2026-10-31: the merged answer dropped them). Codex review
+        2026-10-31: found and declared in two steps, a change of the keep by another process in between got the names
+        on its new text; inside the transaction the keep is still at the version the text was merged into, or the
+        text is no longer merged (None, nothing linked)."""
+        match = self.merged_match(text)
+        if match is None or not declared:
+            return match
         with self._tx():
-            if self._one("SELECT 1 FROM facts WHERE fact_id = ?", (int(fact_id),)) is None:
-                return False
-            self._declare(int(fact_id), declared)
-            return True
+            match = self.merged_match(text)
+            if match is not None:
+                self._declare(int(match["fact_id"]), declared)
+            return match
 
     def _declare(self, fact_id: int, declared) -> None:
         """Declare names on a fact whose text stays as it is (0.17.0: an add of a text already stored, a correct that
@@ -725,15 +734,17 @@ class EntityMixin:
         «Яном») and written with a capital is read by its case ending instead (name_lemmas, as names_fit reads it;
         2026-10-31: «Расскажи про Иру» found no Ира) as well as by its own keys («Ёся» as written), and then meets a
         name as written, not its stem: «Яном» is «Ян», not «Яна» (stem «ян»). A stopword never is read so, and a
-        word in lower case or opening a sentence only as a short name none of whose forms is an ordinary word
-        (_PLAIN_NAMES: «Аню надо…», «про аню» are Аня; «рою» / «Рою яму» are not «Рой», «даю» not «Дай»)."""
+        word in lower case or opening a sentence only as a short name none of whose usual forms is an ordinary word
+        (_PLAIN_NAMES: «Аню надо…», «про аню» are Аня; «рою» / «Рою яму» are not «Рой», «даю» not «Дай»), and a
+        form of one that is an ordinary word too only with a capital (_ORDINARY_FORMS: «к элю» is ale)."""
         text = unicodedata.normalize("NFKC", text or "")
         index = self._known_entities()
         found = set()
         capitals = _capitals_inside(text)
+        written_capital = {m.group().lower() for m in re.finditer(r"[^\W\d_]+", text) if m.group()[:1].isupper()}
         for stretch in _mention_stretches(text):
             sequence = analyze(stretch).words
-            lemmas = [_name_reading(w, capitals) for w in sequence]
+            lemmas = [_name_reading(w, capitals, written_capital) for w in sequence]
             keys = [w.keys | lemmas[i] for i, w in enumerate(sequence)]
             for i in range(len(sequence)):
                 for first in keys[i]:

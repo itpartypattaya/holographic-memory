@@ -102,6 +102,10 @@ _WARNED: set[str] = set()  # failures said once each (a damaged index fails on e
 # from growing it for ever. 64 was reached by the store's actions alone and hid the next new failure (Codex
 # review of 0.17.8).
 _WARNED_MAX = 4096
+# contradict (2026-10-31): a pair of facts that name no one needs this claim overlap (no subject was taken out of
+# their claims, so the words that name the thing count too); a claim word more facts of one group say than
+# _PAIR_KEY_MAX pairs only the newest _PAIR_KEY_MAX of them (_sharing_a_claim_word)
+_UNNAMED_FLOOR, _PAIR_KEY_MAX = 0.5, 500
 
 
 def _warn_once(what: str, exc: Exception) -> None:
@@ -632,52 +636,82 @@ class FactRetriever:
 
     def contradict(self, category: str | None = None, threshold: float = 0.3, limit: int = 10,
                    min_trust: float = 0.0) -> list[dict]:
-        """Candidate conflicts: pairs about the same subject (shared linked entities) making a similar but not
-        identical claim ("Alice lives in Paris" / "Alice lives in London", a changed number, a flipped preference).
-        Score = entity overlap x word overlap of the two claims with the entity names left out. Identical claims,
-        a claim that only adds detail to the other ("likes apples" / "likes apples and bananas") and different
-        topics about the same subject do not qualify. ``content_similarity`` is that word overlap. Word sets, so
-        word order is ignored. Works without numpy."""
-        sql = ("SELECT fact_id, content, category, tags, trust_score, created_at, updated_at FROM facts "
-               "WHERE trust_score >= ?" + (" AND category = ?" if category else "")
-               + " ORDER BY COALESCE(updated_at, created_at) DESC LIMIT 500")  # bound: the most recently changed facts
-        rows = self.store.read(sql, [min_trust] + ([category] if category else []))
+        """Candidate conflicts: pairs about the same subject making a similar but not identical claim ("Alice lives
+        in Paris" / "Alice lives in London", a changed number, a flipped preference). The subject is a linked entity
+        both share: score = entity overlap x word overlap of the two claims with the entity names left out. Two facts
+        that name no one (2026-10-31: they were never compared) have no subject to take out: they qualify only when
+        their whole claims overlap by at least _UNNAMED_FLOOR, nearly the same words but a detail ("the billing
+        service deploys with systemd" / "... with docker"), or the same words in the other polarity. Identical
+        claims, a claim that only adds detail to the other ("likes apples" / "likes apples and bananas") and different
+        topics about the same subject do not qualify. ``content_similarity`` is that word overlap. Word sets, so word
+        order is ignored. Every current fact is compared (2026-10-31: only the 500 most recently changed were), each
+        with those of its group that share a claim word: no other pair can overlap. Works without numpy."""
+        where = "WHERE f.trust_score >= ?" + (" AND f.category = ?" if category else "")
+        params = [min_trust] + ([category] if category else [])
+        rows = self.store.read("SELECT f.fact_id, f.content, f.category, f.tags, f.trust_score, f.created_at, "
+                               f"f.updated_at FROM facts f {where} ORDER BY f.fact_id", params)
         if len(rows) < 2:
             return []
-        ids = [r["fact_id"] for r in rows]
         names_by_fact: dict[int, set[str]] = {}
-        for r in self.store.read("SELECT fe.fact_id, e.name FROM fact_entities fe JOIN entities e ON e.entity_id = fe.entity_id "
-                                 f"WHERE fe.fact_id IN ({','.join('?' * len(ids))})", ids):
+        for r in self.store.read("SELECT fe.fact_id, e.name FROM fact_entities fe JOIN entities e ON e.entity_id = "
+                                 f"fe.entity_id JOIN facts f ON f.fact_id = fe.fact_id {where}", params):
             names_by_fact.setdefault(r["fact_id"], set()).add(r["name"].lower())
         facts = []  # (public dict, lower-cased entity names, claim)
         for row in rows:
-            names = names_by_fact.get(row["fact_id"])
-            if names:
-                entity_words = {w for name in names for w in words(name)}
-                facts.append((dict(row), names, self._claim(row["content"], entity_words)))
-        # Only pairs that share an entity can qualify: group by entity instead of comparing every pair.
-        by_entity: dict[str, list[int]] = {}
+            names = names_by_fact.get(row["fact_id"], set())
+            entity_words = {w for name in names for w in words(name)}
+            facts.append((dict(row), names, self._claim(row["content"], entity_words)))
+        # Groups that may hold a pair: the facts of each entity, and the facts that name no one
+        groups: dict[str | None, list[int]] = {}
         for index, (_, names, _) in enumerate(facts):
-            for name in names:
-                by_entity.setdefault(name, []).append(index)
-        pairs = sorted({(a, b) for group in by_entity.values() for i, a in enumerate(group) for b in group[i + 1:]})
+            for name in names or (None,):
+                groups.setdefault(name, []).append(index)
+        candidates: set[tuple[int, int]] = set()
+        for group in groups.values():
+            if len(group) > 1:
+                candidates |= self._sharing_a_claim_word(group, facts)
         contradictions = []
-        for i, j in pairs:
+        for i, j in sorted(candidates):
             (f1, ents1, claim1), (f2, ents2, claim2) = facts[i], facts[j]
-            entity_overlap = len(ents1 & ents2) / len(ents1 | ents2)
-            if entity_overlap < 0.3:
-                continue  # different subjects
+            if ents1 or ents2:
+                if not (ents1 and ents2):
+                    continue  # one names someone, the other no one: no shared subject
+                entity_overlap = len(ents1 & ents2) / len(ents1 | ents2)
+                if entity_overlap < 0.3:
+                    continue  # different subjects
+                floor = threshold
+            else:
+                entity_overlap, floor = 1.0, max(threshold, _UNNAMED_FLOOR)
             claim_sim = self._conflicting(claim1, claim2)
             contradiction_score = entity_overlap * claim_sim
-            if contradiction_score >= threshold:
+            if contradiction_score >= floor:
                 contradictions.append({
                     "fact_a": f1, "fact_b": f2,
-                    "entity_overlap": round(entity_overlap, 3),
+                    "entity_overlap": round(entity_overlap, 3) if ents1 else 0.0,
                     "content_similarity": round(claim_sim, 3),
                     "contradiction_score": round(contradiction_score, 3),
                     "shared_entities": sorted(ents1 & ents2),
                 })
         return sorted(contradictions, key=lambda x: x["contradiction_score"], reverse=True)[:limit]
+
+    @staticmethod
+    def _sharing_a_claim_word(group: list[int], facts: list) -> set[tuple[int, int]]:
+        """The pairs of *group* (indexes into *facts*) whose claims share a key: only they can overlap. A key more
+        than _PAIR_KEY_MAX facts of the group say (the owner's name on thousands of facts, a verb most of them use)
+        pairs only its _PAIR_KEY_MAX newest: 2,000 claims sharing one word make 2 million pairs (76 s). Not compared: two
+        facts that share nothing but such words and are not both among the newest of one of them (2026-10-31; Codex
+        review the same day: claims of four words or more were left out at any age, so 201 facts "… deploys billing
+        service with X" gave no pair)."""
+        by_key: dict[str, list[int]] = {}
+        for index in group:
+            for key in {k for word_keys in facts[index][2][0] for k in word_keys}:
+                by_key.setdefault(key, []).append(index)
+        pairs = set()
+        for members in by_key.values():
+            members = members[-_PAIR_KEY_MAX:]  # facts are in fact_id order: the newest last
+            if len(members) > 1:
+                pairs.update((a, b) for n, a in enumerate(members) for b in members[n + 1:])
+        return pairs
 
     def _vector_rows(self, category: str | None, min_trust: float = 0.0) -> list:
         """All facts that carry an HRR vector and pass the trust filter, optionally within a category."""

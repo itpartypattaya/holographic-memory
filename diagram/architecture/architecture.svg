@@ -86,7 +86,7 @@
   <rect x="300" y="270" width="200" height="94" rx="6" fill="rgba(6,78,59,0.4)" stroke="#34d399" stroke-width="1.5"/>
   <text x="400" y="294" fill="white" font-size="12" font-weight="600" text-anchor="middle">holomem mcp</text>
   <text x="400" y="312" fill="#94a3b8" font-size="9" text-anchor="middle">stdio server, one per session</text>
-  <text x="400" y="327" fill="#94a3b8" font-size="9" text-anchor="middle">22 memory_* tools</text>
+  <text x="400" y="327" fill="#94a3b8" font-size="9" text-anchor="middle">23 memory_* tools</text>
   <text x="400" y="342" fill="#94a3b8" font-size="9" text-anchor="middle">background: fact vectors</text>
   <text x="400" y="355" fill="#64748b" font-size="8" text-anchor="middle">(embeddings on)</text>
 

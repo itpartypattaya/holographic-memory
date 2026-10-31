@@ -1626,9 +1626,11 @@ def content_keys(text: str) -> list[frozenset]:
 
 
 def soft_overlap(a: list[frozenset], b: list[frozenset]) -> tuple[int, int]:
-    """(words of a found in b, words of b found in a); two words match when their keys meet."""
-    return (sum(1 for x in a if any(not x.isdisjoint(y) for y in b)),
-            sum(1 for y in b if any(not y.isdisjoint(x) for x in a)))
+    """(words of a found in b, words of b found in a); two words match when their keys meet, so a word is found when
+    its keys meet any of the other side's (one set per side, not each word against each: contradict compares many
+    pairs)."""
+    keys_a, keys_b = frozenset().union(*a), frozenset().union(*b)
+    return sum(1 for x in a if not x.isdisjoint(keys_b)), sum(1 for y in b if not y.isdisjoint(keys_a))
 
 
 def soft_jaccard(a: list[frozenset], b: list[frozenset]) -> float:

@@ -20,7 +20,7 @@ What it does:
   knows. Or one store per project (`scope = "project"`).
 
 Status: early (0.0.x). The engine lives in `holomem/engine/` and is this repository's own code, covered by
-`tests/engine/` (about 2150 tests: storage, search in every language, history, merges, names, vectors). `tests/`
+`tests/engine/` (about 2300 tests: storage, search in every language, history, merges, names, vectors). `tests/`
 covers the rest: hooks run as separate processes, the MCP server over stdio, the installer on copies of real settings
 files, search by meaning and rescoring against local fake endpoints.
 
@@ -56,8 +56,9 @@ Two filters keep stray facts out, both measured on a live store and both judged 
 
 Names are read in any case: "Tell me about Ira" in Russian (Иру, Ирой, Иры) finds the entity «Ира» by the case
 ending, as a stem cannot read a three-letter word; «Яном» is «Ян», not «Яна», while «Яну» may be either. A short
-name none of whose forms is an ordinary word (Ева, Ира, Оля, Яна, Ян, Аня, Ася, Юля, Зоя, Яша, Илья, Юра, Инна, Эля,
-Анна, Ёся) is read so wherever it stands: «Аню надо…» opening a sentence, «про аню» in lower case. Any other word only
+name none of whose usual forms is an ordinary word (Ева, Ира, Оля, Яна, Ян, Аня, Ася, Юля, Зоя, Яша, Илья, Юра, Инна,
+Эля, Анна, Ёся) is read so wherever it stands: «Аню надо…» opening a sentence, «про аню» in lower case; a form that is
+one too («к элю», ale; «юлю», «на юле») only with a capital, «Элю надо встретить». Any other word only
 where it is written with a capital inside a sentence: «рою» and «Рою яму» stay a verb, not the name «Рой»; «тому»,
 «улей», «в мае» are not Тома, Уля, Мая.
 
@@ -131,7 +132,7 @@ The agents' own memory files are not changed.
 
 | Tool | What it does |
 |------|--------------|
-| `memory_add` | store one short standalone sentence; `entities` for one-word names, `keywords` for words someone might ask with (up to 12 of 40 characters; `keywords_dropped` in the answer names any not kept, here and in change, merge and update), `origin` said / confirmed / inferred. The answer lists similar facts and possible conflicts |
+| `memory_add` | store one short standalone sentence; `entities` for one-word names, `keywords` for words someone might ask with (up to 12 of 40 characters; `keywords_dropped` in the answer names any not kept, here and in change, merge and update; a text already stored, merged or past keeps none it did not have), `origin` said / confirmed / inferred. The answer lists similar facts and possible conflicts |
 | `memory_search` | find facts by words in any word form and language; `as_of` for what held on a day; with search by meaning, also by meaning (`match: "meaning"`); with rescoring, in its order |
 | `memory_probe` / `memory_related` | everything about a person or thing / facts structurally related to it (HRR) |
 | `memory_reason` | facts that involve all of the named people or things |
@@ -142,7 +143,7 @@ The agents' own memory files are not changed.
 | `memory_update` | give a fact keywords or another category (not a new text) |
 | `memory_enrich` | facts without keywords, the most recalled first, to give some |
 | `memory_entities` / `memory_entity` | known names with aliases / `alias` (one person, two names), `rename`, `delete` (a name that is not one; the facts stay), `split` |
-| `memory_contradict` | pairs of facts about the same person or thing that say different things ("lives in Lisbon" / "lives in Porto", a changed number, a flipped preference), strongest first; `category`, `min_trust`, `limit`. Candidates for the person to judge, then `memory_correct` / `memory_end` / `memory_change` the one that does not hold; changes nothing |
+| `memory_contradict` | pairs of facts about the same person or thing that say different things ("lives in Lisbon" / "lives in Porto", a changed number, a flipped preference), strongest first; `category`, `min_trust`, `limit`. Every current fact is compared with those that share a word of its claim (a word over 500 facts of one name say: its newest 500); two that name no one only when they say nearly the same and differ in a detail ("deploys with systemd" / "with docker"). Candidates for the person to judge, then `memory_correct` / `memory_end` / `memory_change` the one that does not hold; changes nothing |
 | `memory_review` | clean-up candidates with a reason (low trust, never recalled, an unconfirmed inference, a near-duplicate to merge) and names nobody confirmed; changes nothing |
 | `memory_list` / `memory_stats` | facts by trust / counts, categories, origins, the state of search by meaning and rescoring |
 | `memory_export` | the store as one Markdown page for a review ([below](#export)); `category`, `min_trust`, `limit` (default 100, at most 1000) |

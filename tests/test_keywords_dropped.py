@@ -67,3 +67,28 @@ def test_keywords_given_as_one_comma_separated_string_are_counted_word_by_word(m
     merged, is_error = mcp.call("memory_merge", fact_id=keep, keywords=", ".join(FOURTEEN), **{"from": [copy]})
     assert not is_error and merged["keywords"] == FOURTEEN[:12], merged
     assert merged["keywords_dropped"] == FOURTEEN[12:], merged
+
+
+def test_an_add_of_a_text_already_stored_names_the_keywords_it_did_not_keep(mcp):
+    """Codex review 2026-10-31: the same text again with new keywords answered "exists" and named at most the words
+    past the 12th, though none was stored: the fact kept only its own. A word it already has is no loss."""
+    fact_id = add(mcp, "Lena lives in Lisbon", keywords=["home"])["fact_id"]
+    again, is_error = mcp.call("memory_add", content="Lena lives in Lisbon", keywords=["home", "city", "portugal"])
+    assert not is_error and again["status"] == "exists" and again["fact_id"] == fact_id, again
+    assert again["keywords_dropped"] == ["city", "portugal"], again
+    assert "memory_update" in again["hint"], again
+    again, _ = mcp.call("memory_add", content="Lena lives in Lisbon", keywords=FOURTEEN)
+    assert again["keywords_dropped"] == FOURTEEN, again  # all 14: not the 13th and 14th only
+
+
+def test_an_add_of_a_merged_or_a_past_text_names_the_keywords_it_did_not_keep(mcp):
+    keep = add(mcp, "Lena lives in Lisbon")["fact_id"]
+    copy = add(mcp, "Lena's home is Lisbon")["fact_id"]
+    _, is_error = mcp.call("memory_merge", fact_id=keep, **{"from": [copy]})
+    assert not is_error
+    merged, _ = mcp.call("memory_add", content="Lena's home is Lisbon", keywords=["city"])
+    assert merged["status"] == "merged" and merged["keywords_dropped"] == ["city"], merged
+    _, is_error = mcp.call("memory_change", fact_id=keep, content="Lena lives in Porto", valid_from="2026-02-01")
+    assert not is_error
+    past, _ = mcp.call("memory_add", content="Lena lives in Lisbon", keywords=["city"])
+    assert past["status"] == "past_version" and past["keywords_dropped"] == ["city"], past

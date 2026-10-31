@@ -140,7 +140,8 @@ SCHEMAS = [
      "person asks what in memory contradicts itself, or before a clean-up. Lexical candidates, not verdicts: ask the "
      "person which holds, then memory_correct the wrong one, memory_end the one that no longer holds (or "
      "memory_change the older into the newer: one history), memory_merge if they say the same; if both hold, leave "
-     "them. Only facts linked to a name are compared; the 500 most recently changed. Advisory: nothing is changed.",
+     "them. Every current fact is compared; two that name no one only when they say nearly the same and differ in a "
+     "detail. Advisory: nothing is changed.",
      "readOnly": True,
      "inputSchema": {"type": "object", "properties": {
          "category": {"type": "string"},
@@ -232,6 +233,21 @@ def _with_dropped(result: dict, value) -> dict:
     dropped = dropped_keywords(value) if value is not None else []
     if dropped:
         result["keywords_dropped"] = dropped
+    return result
+
+
+def _unkept(result: dict, value, stored: str | None) -> dict:
+    """*result* of an add that stored no text (exists, merged, past_version) with keywords_dropped: every word of
+    *value* the fact named does not hold already (Codex review 2026-10-31: the same text again with new keywords
+    named at most those past the 12th, though none was kept)."""
+    if value is None:
+        return result
+    held = {k.casefold() for k in split_tags(stored)[1]}
+    dropped = [w for w in keywords(value) + dropped_keywords(value) if w.casefold() not in held]
+    if dropped:
+        result["keywords_dropped"] = dropped
+        result["hint"] = (result.get("hint", "") + f" Its keywords were not changed: memory_update {{fact_id: "
+                          f"{result['fact_id']}, keywords}} sets them (the old ones too, as it replaces them).").strip()
     return result
 
 
@@ -394,17 +410,18 @@ class Tools:
         content = content.strip()
         store = self.store
         if not store.read("SELECT 1 FROM facts WHERE content = ?", (content,)):
-            merged = store.merged_match(content)
+            merged = store.declare_merged(content, _entities(a))  # who it is about counts, as for an add that exists
             if merged is not None:
-                store.declare(merged["fact_id"], _entities(a))  # who it is about still counts, as for an add that exists
-                return {"fact_id": merged.get("fact_id"), "status": "merged", "stored": False,
-                        "hint": "This text was merged into the fact named here, which says the same."}
+                return _unkept({"fact_id": merged.get("fact_id"), "status": "merged", "stored": False,
+                                "hint": "This text was merged into the fact named here, which says the same."},
+                               a.get("keywords"), store.fact_tags(merged["fact_id"]))
             past = store.past_version(content)
             if past is not None:
                 until = past["valid_to"] if past["valid_to_exact"] else f"some point before {past['valid_to']}"
-                return {"fact_id": past["fact_id"], "status": "past_version", "stored": False,
-                        "hint": f"Fact #{past['fact_id']} said exactly this until {until}. If it holds again, "
-                                f"memory_change {{fact_id: {past['fact_id']}, content}} keeps one history."}
+                return _unkept({"fact_id": past["fact_id"], "status": "past_version", "stored": False,
+                                "hint": f"Fact #{past['fact_id']} said exactly this until {until}. If it holds again, "
+                                        f"memory_change {{fact_id: {past['fact_id']}, content}} keeps one history."},
+                               a.get("keywords"), store.fact_tags(past["fact_id"]))
         origin = a.get("origin") or None
         fact_id, created = store.add_fact_status(content, category=a.get("category") or "general",
                                                  tags=join_tags("", words), entities=_entities(a),
@@ -423,6 +440,8 @@ class Tools:
                 if check.get("similar"):  # a retelling is what merge is for (review 2026-10-31)
                     result["hint"] += (f" If it says the same as a similar one: memory_merge {{fact_id: <that id>, "
                                        f"from: [{fact_id}]}} keeps one fact.")
+        if not created:
+            return self._unlinked(_unkept(result, a.get("keywords"), store.fact_tags(fact_id)), a)
         return self._unlinked(_with_dropped(result, a.get("keywords")), a)
 
     def memory_change(self, a: dict) -> dict:
