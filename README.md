@@ -19,7 +19,7 @@ What it does:
 - **One store for every agent** by default (`~/.holographic/memory_store.db`): what you told Claude Code, Codex
   knows. Or one store per project (`scope = "project"`).
 
-Status: early (0.0.x). The engine lives in `holomem/engine/` and is this repository's own code, covered by
+Status: early (0.x). The engine lives in `holomem/engine/` and is this repository's own code, covered by
 `tests/engine/` (about 2300 tests: storage, search in every language, history, merges, names, vectors). `tests/`
 covers the rest: hooks run as separate processes, the MCP server over stdio, the installer on copies of real settings
 files, search by meaning and rescoring against local fake endpoints.
