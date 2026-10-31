@@ -7,6 +7,7 @@
   "repository": "https://github.com/itpartypattaya/holographic-memory",
   "license": "MIT",
   "keywords": ["memory", "sqlite", "fts5", "recall", "mcp"],
+  "icon": ".claude-plugin/icon.jpg",
   "documentationUrl": "https://github.com/itpartypattaya/holographic-memory#readme",
   "supportUrl": "https://github.com/itpartypattaya/holographic-memory/issues",
   "privacyPolicyUrl": "https://github.com/itpartypattaya/holographic-memory/blob/main/PRIVACY.md",
