@@ -155,6 +155,10 @@ report, another session) passes `expect: {"<fact_id>": <version_id>}`, the versi
 transaction, so no other session can change it in between. Otherwise nothing is written and the answer's
 `changed_since` gives each named fact's current version id (`null`: forgotten). Without `expect` a write is as before.
 
+**An unknown argument is refused.** Every tool's schema says `additionalProperties: false`, and a call with a key the
+tool does not take (a misspelt `limt` or `valid_form`) gets an error naming it and the keys the tool takes; nothing
+is written. Up to 0.5.0 such a key was dropped without a word (0.4.0 ignored an `expect`: the write went unchecked).
+
 ### Export
 
 ```bash

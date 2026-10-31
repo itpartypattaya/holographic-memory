@@ -173,6 +173,11 @@ SCHEMAS = [
 ]
 READ_ONLY = {s["name"] for s in SCHEMAS if s.pop("readOnly", False)}
 NAMES = [s["name"] for s in SCHEMAS]
+# A key a tool does not know is refused, not dropped: an `expect` a release without it ignored let the write through
+# unchecked, and a misspelt key did nothing while the call looked fine.
+for _schema in SCHEMAS:
+    _schema["inputSchema"]["additionalProperties"] = False
+KNOWN = {s["name"]: frozenset(s["inputSchema"].get("properties", {})) for s in SCHEMAS}
 JOURNAL = "memory_experience"  # listed only with experience on
 
 
@@ -246,6 +251,10 @@ class Tools:
             return {"error": f"Unknown tool: {name}"}, True
         if not isinstance(args, dict):
             return {"error": "arguments must be an object"}, True
+        unknown = sorted(set(args) - KNOWN[name])
+        if unknown:
+            return {"error": f"{name} has no argument {', '.join(repr(k) for k in unknown)}; nothing was changed. "
+                             f"It takes: {', '.join(sorted(KNOWN[name])) or 'none'}"}, True
         try:
             return _clean(handler(self._days(args))), False
         except Refusal as exc:
