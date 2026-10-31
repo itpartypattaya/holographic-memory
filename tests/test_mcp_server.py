@@ -25,10 +25,10 @@ from pathlib import Path
 
 import pytest
 
+from _launch import LAUNCH as _LAUNCH
 from test_hooks import context, hook, prompt
 
 ROOT = Path(__file__).resolve().parent.parent
-_LAUNCH = "import sys; sys.path.insert(0, sys.argv.pop(1)); from holomem.__main__ import main; sys.exit(main())"
 
 
 class Client:

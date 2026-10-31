@@ -40,6 +40,7 @@ from pathlib import Path
 
 import pytest
 
+from _launch import LAUNCH as _LAUNCH
 from holomem.recall import HEADER, approx_tokens
 from test_export import cli as export_cli
 from test_hooks import context, hook, prompt, seed
@@ -49,7 +50,6 @@ from test_meaning import cli as meaning_cli
 from test_meaning import config as meaning_config
 
 ROOT = Path(__file__).resolve().parent.parent
-_LAUNCH = "import sys; sys.path.insert(0, sys.argv.pop(1)); from holomem.__main__ import main; sys.exit(main())"
 EXP = "experience = true\n"
 ATTEMPT = re.compile(r"\nMemory attempt: ([0-9a-f]{32})\Z")
 DEPLOY = "The billing service deploys to the staging server with systemd"

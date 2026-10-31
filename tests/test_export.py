@@ -25,12 +25,12 @@ from pathlib import Path
 
 import pytest
 
+from _launch import LAUNCH as _LAUNCH
 from holomem.config import project_key, project_root
 from test_hooks import context, hook, prompt, seed
 from test_mcp_server import Client
 
 ROOT = Path(__file__).resolve().parent.parent
-_LAUNCH = "import sys; sys.path.insert(0, sys.argv.pop(1)); from holomem.__main__ import main; sys.exit(main())"
 LONG = " ".join(f"step{i} of the Lisbon office move" for i in range(1, 200))[:699] + "."  # one line, 700 characters
 
 

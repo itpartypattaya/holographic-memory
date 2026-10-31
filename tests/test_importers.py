@@ -191,7 +191,7 @@ def test_the_cli_prints_any_text_on_a_windows_console(tmp_path, home):
                     encoding="utf-8")
     env = {k: v for k, v in os.environ.items() if k not in ("PYTHONIOENCODING", "PYTHONUTF8")}
     env.update({"HOLOMEM_HOME": str(home), "PYTHONIOENCODING": "cp1252"})
-    launch = "import sys; sys.path.insert(0, sys.argv.pop(1)); from holomem.__main__ import main; sys.exit(main())"
+    from _launch import LAUNCH as launch
     proc = subprocess.run([sys.executable, "-c", launch, str(Path(__file__).resolve().parent.parent), "import",
                            "codex-memories", "--path", str(path), "--dry-run"], capture_output=True, env=env, timeout=60)
     assert proc.returncode == 0, proc.stderr.decode(errors="replace")[-800:]

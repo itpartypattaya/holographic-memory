@@ -29,8 +29,9 @@ from pathlib import Path
 
 import pytest
 
+from _launch import LAUNCH as _LAUNCH
+
 ROOT = Path(__file__).resolve().parent.parent
-_LAUNCH = "import sys; sys.path.insert(0, sys.argv.pop(1)); from holomem.__main__ import main; sys.exit(main())"
 
 
 def hook(home: Path, event: str, payload, client: str = "claude-code", timeout: float = 60) -> subprocess.CompletedProcess:

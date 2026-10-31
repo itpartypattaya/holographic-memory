@@ -45,6 +45,7 @@ from pathlib import Path
 
 import pytest
 
+from _launch import LAUNCH as _LAUNCH
 from holomem.recall import HEADER
 from test_hooks import context, hook, prompt, seed
 from test_mcp_server import Client
@@ -53,7 +54,6 @@ from test_meaning import cli as meaning_cli
 from test_meaning import config as meaning_config
 
 ROOT = Path(__file__).resolve().parent.parent
-_LAUNCH = "import sys; sys.path.insert(0, sys.argv.pop(1)); from holomem.__main__ import main; sys.exit(main())"
 ASK = "How does the billing service deploy?"
 DEPLOYS = ["The billing service deploys to the staging server with systemd",
            "The billing service deploy uses a blue green switch",
