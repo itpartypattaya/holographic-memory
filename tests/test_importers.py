@@ -196,3 +196,136 @@ def test_the_cli_prints_any_text_on_a_windows_console(tmp_path, home):
                            "codex-memories", "--path", str(path), "--dry-run"], capture_output=True, env=env, timeout=60)
     assert proc.returncode == 0, proc.stderr.decode(errors="replace")[-800:]
     assert b"would add 1" in proc.stdout
+
+
+# -- where the clients keep their memory, and files that are not what the parser expects (2026-10-31) ---------------
+# Claude Code (code.claude.com/docs/en/memory, sub-agents): auto memory in <config>/projects/<project>/memory/, or the
+# folder autoMemoryDirectory names (absolute or ~/); <config> is ~/.claude or CLAUDE_CONFIG_DIR; a subagent's in
+# <config>/agent-memory/<name>/. Codex: <CODEX_HOME or ~/.codex>/memories/memory_summary.md, and codex-cli 0.166 keeps
+# a memories_v2/ of the same format beside it. Before, only ~/.claude/projects and ~/.codex/memories were read, and a
+# file the parser could not read was skipped without a word ("nothing to import", exit 0).
+
+NOTE = """---
+name: {name}
+description: {text}
+metadata:
+  type: project
+---
+
+{text}
+"""
+
+
+@pytest.fixture
+def user_home(tmp_path, monkeypatch, home) -> Path:
+    """A home of its own: ~ and the clients' variables point inside tmp_path."""
+    path = tmp_path / "user"
+    path.mkdir()
+    for name in ("HOME", "USERPROFILE"):  # what Path.home() and ~ read, on Windows and elsewhere
+        monkeypatch.setenv(name, str(path))
+    for name in ("CLAUDE_CONFIG_DIR", "CODEX_HOME"):
+        monkeypatch.delenv(name, raising=False)
+    return path
+
+
+def _note(folder: Path, name: str, text: str, encoding: str = "utf-8") -> Path:
+    folder.mkdir(parents=True, exist_ok=True)
+    path = folder / f"{name}.md"
+    path.write_bytes(NOTE.format(name=name, text=text).encode(encoding))
+    return path
+
+
+def _run(source: str, capsys, path: str | None = None) -> tuple[int, str]:
+    from types import SimpleNamespace
+
+    code = importers.main(SimpleNamespace(source=source, path=path, dry_run=True))
+    return code, capsys.readouterr().out
+
+
+def test_claude_reads_the_folder_auto_memory_directory_names(user_home, capsys):
+    (user_home / ".claude").mkdir()
+    (user_home / ".claude" / "settings.json").write_text('{"autoMemoryDirectory": "~/notes/memory"}', encoding="utf-8")
+    _note(user_home / "notes" / "memory", "deploy", "The billing service deploys with systemd.")
+    _note(user_home / ".claude" / "projects" / "C--work" / "memory", "oven", "The bakery oven runs at 220 degrees.")
+    code, out = _run("claude-memory", capsys)
+    assert code == 0, out
+    assert "would add [project] The billing service deploys with systemd." in out, out
+    assert "The bakery oven runs at 220 degrees." in out, out  # notes from before the setting are still read
+
+
+def test_claude_reads_under_claude_config_dir(user_home, tmp_path, monkeypatch, capsys):
+    config = tmp_path / "other-config"
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(config))
+    _note(config / "projects" / "C--work" / "memory", "deploy", "The billing service deploys with systemd.")
+    code, out = _run("claude-memory", capsys)
+    assert code == 0 and "The billing service deploys with systemd." in out, out
+
+
+def test_claude_reads_a_subagents_memory_and_says_whose(user_home, capsys):
+    folder = user_home / ".claude" / "agent-memory" / "reviewer"
+    _note(folder, "style", "The billing service code uses four-space indents.")
+    (folder / "MEMORY.md").write_text("- [Style](style.md)\n", encoding="utf-8")
+    found = importers.claude_sources()
+    cands = [c for root, prefix in found for c in importers.claude_candidates(root, origin=prefix)]
+    assert [(c.text, c.origin) for c in cands] == [("The billing service code uses four-space indents.",
+                                                    "agent-memory/reviewer/style.md")]
+    code, out = _run("claude-memory", capsys)
+    assert code == 0 and "would add 1" in out, out
+
+
+def test_codex_reads_under_codex_home(user_home, tmp_path, monkeypatch, capsys):
+    codex = tmp_path / "codex-home"
+    (codex / "memories").mkdir(parents=True)
+    (codex / "memories" / "memory_summary.md").write_text("## Notes\n\n- The bakery site is built with Astro.\n",
+                                                          encoding="utf-8")
+    monkeypatch.setenv("CODEX_HOME", str(codex))
+    code, out = _run("codex-memories", capsys)
+    assert code == 0 and "The bakery site is built with Astro." in out, out
+
+
+def test_codex_reads_memories_v2_beside_memories(user_home, capsys):
+    for folder, text in (("memories", "The bakery site is built with Astro."),
+                         ("memories_v2", "The billing service deploys with systemd.")):
+        (user_home / ".codex" / folder).mkdir(parents=True)
+        (user_home / ".codex" / folder / "memory_summary.md").write_text(f"## Notes\n\n- {text}\n", encoding="utf-8")
+    code, out = _run("codex-memories", capsys)
+    assert code == 0, out
+    assert "The bakery site is built with Astro." in out and "The billing service deploys with systemd." in out, out
+    assert "memories_v2" in out and "memories" + __import__("os").sep + "memory_summary.md" in out, out  # each path named
+
+
+def test_a_codex_file_in_a_format_not_recognised_is_an_error_not_nothing(user_home, capsys):
+    (user_home / ".codex" / "memories").mkdir(parents=True)
+    path = user_home / ".codex" / "memories" / "memory_summary.md"
+    path.write_text("## Notes\n\n1. The bakery site is built with Astro.\n2. It deploys on push.\n", encoding="utf-8")
+    code, out = _run("codex-memories", capsys)
+    assert code == 1, out
+    assert f"format not recognized: {path}" in out, out
+
+
+def test_a_note_with_a_byte_order_mark_keeps_its_type_and_no_frontmatter(tmp_path):
+    folder = tmp_path / "memory"
+    _note(folder, "deploy", "The billing service deploys with systemd.", encoding="utf-8-sig")
+    got = [(c.text, c.category) for c in importers.claude_candidates(folder)]
+    assert got == [("The billing service deploys with systemd.", "project")], got
+
+
+def test_a_note_whose_frontmatter_never_closes_is_reported_not_stored_as_text(user_home, capsys):
+    folder = user_home / ".claude" / "projects" / "C--work" / "memory"
+    folder.mkdir(parents=True)
+    cut = folder / "cut.md"
+    cut.write_text("---\nname: cut\ndescription: The billing service deploys\nmetadata:\n  type: proj", encoding="utf-8")
+    _note(folder, "oven", "The bakery oven runs at 220 degrees.")
+    code, out = _run("claude-memory", capsys)
+    assert code == 1, out  # the rest is imported; the exit code says a file was left
+    assert "name:" not in out and "---" not in out.replace(f"frontmatter not closed: {cut}", ""), out
+    assert f"frontmatter not closed: {cut}" in out and "would add 1" in out, out
+
+
+def test_a_note_not_in_utf8_is_named_not_skipped_silently(user_home, capsys):
+    folder = user_home / ".claude" / "projects" / "C--work" / "memory"
+    old = _note(folder, "old", "Сервис биллинга деплоится через systemd.", encoding="cp1251")
+    _note(folder, "oven", "The bakery oven runs at 220 degrees.")
+    code, out = _run("claude-memory", capsys)
+    assert code == 1, out
+    assert f"not UTF-8: {old}" in out and "would add 1" in out, out

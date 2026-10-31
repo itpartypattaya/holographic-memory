@@ -118,9 +118,18 @@ Or, for Claude Code only, as a plugin (it calls `holomem` from PATH):
 ### Bring what the agents already remember
 
 ```bash
-holomem import claude-memory --dry-run    # ~/.claude/projects/*/memory/*.md, one fact per note
-holomem import codex-memories --dry-run   # ~/.codex/memories/memory_summary.md, one fact per bullet
+holomem import claude-memory --dry-run    # Claude Code's auto memory notes, one fact per note
+holomem import codex-memories --dry-run   # Codex's memory_summary.md, one fact per bullet
 ```
+
+Without `--path` every place the agent keeps them is read. Claude Code: `~/.claude/projects/*/memory/`, the folder
+`autoMemoryDirectory` names in `~/.claude/settings.json`, and each subagent's `~/.claude/agent-memory/<name>/`
+(`CLAUDE_CONFIG_DIR` in place of `~/.claude`; a folder a project's own settings name: `--path`). Codex:
+`memory_summary.md` in `~/.codex/memories/` and in `memories_v2/` beside it, which codex-cli 0.166 also keeps
+(`CODEX_HOME` in place of `~/.codex`). Checked with Claude Code 2.1 and codex-cli 0.166. A file that cannot be read
+is named and the command exits with 1 after importing the rest: not UTF-8, a frontmatter cut off, or a format it does
+not know (the agent changed it), so an import that finds nothing because of that does not look like one that had
+nothing to find.
 
 Claude Code's notes become one fact each (the note, not its **Why:** / **How to apply:** lines). From Codex's summary
 the preference and tip bullets are taken; its last section, "What's in Memory", is an index of past tasks (keywords,
