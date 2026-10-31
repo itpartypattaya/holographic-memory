@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import difflib
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -127,6 +128,30 @@ def claude_settings(settings: dict, *, remove: bool = False, recall: str = "comm
     else:
         out.pop("permissions", None)
     return out
+
+
+def installed_for_claude(cwd: str = "") -> bool:
+    """Whether this installer's hooks are in the settings Claude Code reads for a session in *cwd*: the user's
+    settings.json (in CLAUDE_CONFIG_DIR when set), or .claude/settings.local.json of the project (--scope project) in
+    *cwd* or the repository it belongs to. The plugin stands aside then: one recall per message, one set of tools."""
+    from .config import project_root
+
+    files = [Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude").expanduser() / "settings.json"]
+    if cwd:
+        files += [folder / ".claude" / "settings.local.json" for folder in dict.fromkeys((Path(cwd),
+                                                                                         project_root(Path(cwd))))]
+    for path in files:
+        try:
+            settings = json.loads(path.read_text(encoding="utf-8-sig"))
+        except (OSError, ValueError):
+            continue
+        hooks = settings.get("hooks") if isinstance(settings, dict) else None
+        for groups in hooks.values() if isinstance(hooks, dict) else ():
+            for group in groups if isinstance(groups, list) else ():
+                listed = group.get("hooks") if isinstance(group, dict) else None
+                if isinstance(listed, list) and any(_ours(h) for h in listed):
+                    return True
+    return False
 
 
 def claude_mcp_commands(scope: str, cli: str, *, remove: bool = False) -> list[list[str]]:

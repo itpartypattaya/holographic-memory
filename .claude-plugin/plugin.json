@@ -13,7 +13,7 @@
   "mcpServers": {
     "holographic": {
       "command": "uv",
-      "args": ["run", "--locked", "--quiet", "--project", "${CLAUDE_PLUGIN_ROOT}", "holomem", "mcp", "--client", "claude-code"]
+      "args": ["run", "--locked", "--quiet", "--project", "${CLAUDE_PLUGIN_ROOT}", "holomem", "mcp", "--client", "claude-code", "--plugin"]
     }
   }
 }

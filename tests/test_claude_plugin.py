@@ -6,7 +6,8 @@ a program they had to install from elsewhere (the Claude plugin directory instal
 marketplace points at that folder; the plugin's version is the package's; uv.lock holds the package's version and
 dependencies (with --locked, a lock left behind a release makes uv refuse to run, and every hook fails); every hook
 command and the MCP server's arguments are ones the holomem CLI accepts (a renamed subcommand or flag would make the
-plugin's hooks fail silently on every prompt); the server name has no "__" (Claude Code's permission rules split on it).
+plugin's hooks fail silently on every prompt) and say they run as the plugin (--plugin: test_plugin_beside_install.py);
+the server name has no "__" (Claude Code's permission rules split on it).
 """
 from __future__ import annotations
 
@@ -61,10 +62,13 @@ def _parses(argv: list[str], monkeypatch) -> None:
     import holomem.mcp_server
 
     ran = []
-    monkeypatch.setattr(holomem.hooks, "main", lambda event, client, stdin: ran.append((event, client)) or 0)
-    monkeypatch.setattr(holomem.mcp_server, "serve", lambda client: ran.append(("mcp", client)) or 0)
+    monkeypatch.setattr(holomem.hooks, "main",
+                        lambda event, client, stdin, plugin: ran.append((event, client, plugin)) or 0)
+    monkeypatch.setattr(holomem.mcp_server, "serve", lambda client, plugin: ran.append(("mcp", client, plugin)) or 0)
     monkeypatch.setattr("sys.stdin", type("S", (), {"buffer": type("B", (), {"read": lambda self: b"{}"})()})())
-    assert main(argv) == 0 and ran
+    assert main(argv) == 0
+    (call,) = ran
+    assert call[-1] is True  # run as the plugin: it stands aside beside `holomem install claude-code`
 
 
 def _own_package(argv: list[str]) -> list[str]:

@@ -32,9 +32,9 @@ ROOT = Path(__file__).resolve().parent.parent
 
 
 class Client:
-    def __init__(self, home: Path, client: str = "claude-code"):
-        env = {**os.environ, "HOLOMEM_HOME": str(home)}
-        self.proc = subprocess.Popen([sys.executable, "-I", "-c", _LAUNCH, str(ROOT), "mcp", "--client", client],
+    def __init__(self, home: Path, client: str = "claude-code", extra: tuple[str, ...] = (), env: dict | None = None):
+        env = {**os.environ, **(env or {}), "HOLOMEM_HOME": str(home)}
+        self.proc = subprocess.Popen([sys.executable, "-I", "-c", _LAUNCH, str(ROOT), "mcp", "--client", client, *extra],
                                      stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env)
         self.next_id = 0
 

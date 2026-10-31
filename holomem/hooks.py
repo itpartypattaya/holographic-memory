@@ -91,8 +91,9 @@ def run(event: str, client: str, payload: dict, cfg: config.Config, budget: Budg
         memory.close()
 
 
-def main(event: str, client: str, stdin: bytes) -> int:
-    """Read, answer within the deadline, exit 0 whatever happens."""
+def main(event: str, client: str, stdin: bytes, *, plugin: bool = False) -> int:
+    """Read, answer within the deadline, exit 0 whatever happens. As the plugin (*plugin*), say nothing where
+    `holomem install claude-code` hooks run too: the person would get every recall twice."""
     if event not in EVENTS:
         return 0
     try:
@@ -107,6 +108,11 @@ def main(event: str, client: str, stdin: bytes) -> int:
         return 0
     if not isinstance(payload, dict):
         return 0
+    if plugin:
+        from .install import installed_for_claude
+
+        if installed_for_claude(str(payload.get("cwd") or "")):
+            return 0
     result: list[str] = []
     budget = Budget(time.monotonic() + cfg.hook_deadline_seconds)
 

@@ -24,7 +24,7 @@ import os
 import sys
 import threading
 
-from . import __version__, config
+from . import __version__, config, install
 from .hooks import answer
 from .memory import Context, open_memory
 from .recall import Budget, recall, trivial
@@ -47,13 +47,18 @@ _CATCH_UP_SECONDS = 20.0  # one pass of the vectors thread
 _CATCH_UP_EVERY = 300.0  # an idle pass: facts another session or a hook stored
 INSTRUCTIONS = ("Long-term memory kept in a local store (holographic-memory). Facts relevant to a message arrive with "
                 "it; memory_search finds more. Store durable facts as short standalone sentences.")
+IDLE = ("This copy of holographic-memory (the plugin) is idle: the memory is also installed with `holomem install "
+        "claude-code`, whose server has the memory tools. Use either the plugin or that install; with both, only the "
+        "install's tools are listed.")
 
 
 class Server:
-    def __init__(self, client: str, cwd: str | None = None):
+    def __init__(self, client: str, cwd: str | None = None, *, plugin: bool = False):
         self.cfg = config.load()
         self.ctx = Context(client=client, session_id=f"mcp-{os.getpid()}",
                            cwd=cwd or os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd())
+        # the plugin beside `holomem install claude-code`: one set of tools, the install's (decided once, at start)
+        self.idle = plugin and install.installed_for_claude(self.ctx.cwd)
         self.tools: Tools | None = None
         self.memory = self.state = None
         self.lock = threading.Lock()  # the store and the retriever: tool calls and the vectors thread
@@ -152,14 +157,18 @@ class Server:
             return self._ok(msg_id, {"protocolVersion": asked if asked in PROTOCOLS else PROTOCOLS[1],
                                      "capabilities": {"tools": {"listChanged": False}},
                                      "serverInfo": {"name": "holographic-memory", "version": __version__},
-                                     "instructions": INSTRUCTIONS})
+                                     "instructions": IDLE if self.idle else INSTRUCTIONS})
         if method == "ping":
             return self._ok(msg_id, {})
         if method == "tools/list":
+            if self.idle:
+                return self._ok(msg_id, {"tools": []})
             return self._ok(msg_id, {"tools": [
                 {**schema, "annotations": {"readOnlyHint": schema["name"] in READ_ONLY,
                                            "destructiveHint": schema["name"] == "memory_forget",
                                            "openWorldHint": False}} for schema in (*listed(self.cfg), RECALL)]})
+        if method == "tools/call" and self.idle:
+            return self._ok(msg_id, {"content": [{"type": "text", "text": dumps({"error": IDLE})}], "isError": True})
         if method == "tools/call":
             name, args = params.get("name"), params.get("arguments") or {}
             if name == RECALL["name"]:  # never an error: a failing hook must not stand in the prompt's way
@@ -217,13 +226,14 @@ class Server:
         return {"jsonrpc": "2.0", "id": msg_id, "error": {"code": code, "message": message}}
 
 
-def serve(client: str, stdin=None, stdout=None) -> int:
+def serve(client: str, stdin=None, stdout=None, *, plugin: bool = False) -> int:
     stdin = stdin or sys.stdin.buffer
     stdout = stdout or sys.stdout.buffer
     logging.basicConfig(stream=sys.stderr, level=logging.WARNING, format="%(levelname)s %(message)s")
-    server = Server(client)
-    server.preload()
-    server.start_vectors()
+    server = Server(client, plugin=plugin)
+    if not server.idle:  # an idle server opens no store and makes no vectors
+        server.preload()
+        server.start_vectors()
     try:
         for raw in stdin:
             line = raw.strip()

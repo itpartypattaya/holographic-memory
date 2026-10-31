@@ -14,11 +14,16 @@
 ## Проект
 
 HANDOFF.md обновлять в каждой сессии, в той же сессии, что и правки (файл локальный, в `.gitignore`).
-`AGENTS.md` (Codex) — копия этого файла: правка в одном переносится в другой в том же коммите.
+`AGENTS.md` (Codex) — копия этого файла (`.claude/CLAUDE.md`: в корне папки плагина CLAUDE.md не держим): правка в
+одном переносится в другой в том же коммите.
 
 - Что это: универсальная долговременная память для агентов — движок голографической памяти в Claude Code и Codex CLI
   (хуки + MCP-сервер). План — `plans/` (локально).
 - `holomem/engine/` — движок, собственный код этого репозитория: правится здесь, поведение держат тесты `tests/engine/`.
   Файлы лицензий (`holomem/engine/LICENSE`, `holomem/engine/LICENSES/`) не трогать.
+- Плагин Claude Code = корень репозитория (`.claude-plugin/`, `hooks/`, `skills/`), движок запускается через
+  `uv run --locked`. Релиз: версия в `pyproject.toml`, `holomem/__init__.py`, `.claude-plugin/plugin.json`, затем
+  `uv lock` — без него `--locked` откажет у всех пользователей плагина (держат `tests/test_claude_plugin.py` и
+  `uv lock --check` в CI).
 - Тесты: `uv run --no-project --python 3.12 --with pytest --with numpy --with snowballstemmer python -m pytest -q
   --basetemp=<scratchpad> --override-ini=tmp_path_retention_policy=failed`.

@@ -1,7 +1,7 @@
 """holomem — holographic memory for Claude Code and Codex CLI.
 
-    holomem hook user-prompt|session-start --client claude-code|codex   (stdin: the client's hook JSON)
-    holomem mcp --client claude-code|codex                              (stdio MCP server)
+    holomem hook user-prompt|session-start --client claude-code|codex [--plugin]   (stdin: the client's hook JSON)
+    holomem mcp --client claude-code|codex [--plugin]                              (stdio MCP server)
     holomem install claude-code|codex [--scope user|project] [--dry-run] [--uninstall]
     holomem import claude-memory|codex-memories [--dry-run]
     holomem embed [--seconds N]                                         (search by meaning: vectors now)
@@ -23,8 +23,11 @@ def main(argv: list[str] | None = None) -> int:
     hook = sub.add_parser("hook", help="run a hook (stdin: the client's JSON)")
     hook.add_argument("event", choices=["user-prompt", "session-start"])
     hook.add_argument("--client", choices=CLIENTS, default="claude-code")
+    plugin_help = "run as the Claude Code plugin: stand aside where `holomem install claude-code` is in place"
+    hook.add_argument("--plugin", action="store_true", help=plugin_help)
     mcp = sub.add_parser("mcp", help="run the stdio MCP server")
     mcp.add_argument("--client", choices=CLIENTS, default="claude-code")
+    mcp.add_argument("--plugin", action="store_true", help=plugin_help)
     inst = sub.add_parser("install", help="add the hooks and the MCP server to a client's settings")
     inst.add_argument("client", choices=CLIENTS)
     inst.add_argument("--scope", choices=["user", "project"], default="user")
@@ -62,11 +65,11 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "hook":
         from .hooks import main as hook_main
 
-        return hook_main(args.event, args.client, sys.stdin.buffer.read())
+        return hook_main(args.event, args.client, sys.stdin.buffer.read(), plugin=args.plugin)
     if args.command == "mcp":
         from .mcp_server import serve
 
-        return serve(args.client)
+        return serve(args.client, plugin=args.plugin)
     if args.command == "install":
         from .install import main as install_main
 
