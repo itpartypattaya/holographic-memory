@@ -56,7 +56,8 @@ def run(event: str, client: str, payload: dict, cfg: config.Config, budget: Budg
         budget.step("open")
         memory = open_memory(cfg, ctx)
         try:
-            return answer(event, block(cfg, memory, scoped_out=cfg.scope == "project" and not ctx.cwd))
+            return answer(event, block(cfg, memory, scoped_out=cfg.scope == "project" and not ctx.cwd,
+                                       client=client, cwd=ctx.cwd))
         finally:
             if memory:
                 memory.close()

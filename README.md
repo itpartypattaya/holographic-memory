@@ -351,7 +351,7 @@ Models: `jina-reranker-v2-base-multilingual` (CC BY-NC 4.0: fine for personal me
 |-----|---------|--------------|
 | `db_path` | `~/.holographic/memory_store.db` | the fact store (global scope) |
 | `scope` | `global` | `project`: one store per git root, in `~/.holographic/projects/` |
-| `store_policy` | `ask` | `ask`: the agent stores a fact when you ask it to remember, or agree; `proactive`: it stores durable facts on its own |
+| `store_policy` | `ask` | `ask`: the agent stores a fact when you ask it to remember, or agree; `proactive`: it stores durable facts on its own. In Claude Code with its own auto memory on (the default) the agent first asks you where "remember this" goes: here, Claude Code's auto memory, or both; with `autoMemoryEnabled: false` or `CLAUDE_CODE_DISABLE_AUTO_MEMORY=1` it does not ask |
 | `self_names` | `[]` | the names of the person the memory belongs to (`["Mark", "Mark Stone"]`): named in passing, they pull no facts by name alone |
 | `auto_extract` | `false` | store your sentences that state a preference or decision ("I prefer…", "we decided…", in English, Russian, Chinese) from each prompt, at trust 0.4 |
 | `prefetch_min_coverage` | `0.3` | how much of a message a fact must match to be recalled |
