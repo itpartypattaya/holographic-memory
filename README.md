@@ -137,6 +137,22 @@ the preference and tip bullets are taken; its last section, "What's in Memory", 
 hand), screened like any other write; a text already stored, or nearly, is skipped, so running it twice adds nothing.
 The agents' own memory files are not changed.
 
+### Other agents
+
+`holomem install` sets up Claude Code and Codex CLI, which get both the memory tools (MCP) and the recall before each
+message (hooks). Another agent that runs local MCP servers can use the memory tools today, on the same store:
+register `holomem mcp --client claude-code` as a stdio server in it (the client name only labels where a fact was
+written). It gets no recall before each message, though: its hooks speak another format, or none of them adds
+context per message, so it sees stored facts only when it calls `memory_search` or `memory_probe` itself. As checked
+on 31 October 2026:
+
+| Agent | Memory tools (MCP) | Recall before each message |
+|---|---|---|
+| Antigravity (Google, `agy`, app, IDE) | yes: `agy mcp add` | not yet: its hooks add context with `injectSteps` before every model call (`PreInvocation`), not per message, in another JSON format |
+| Grok Build (xAI's CLI) | yes: `grok mcp add`; it also loads the servers in `~/.claude.json`, so holomem installed for Claude Code is there already | no: it reads Claude Code's hook files too, but ignores what a hook of a passive event such as `UserPromptSubmit` prints |
+| Grok in the browser, X or a messenger | no: a hosted chat reaches only remote MCP servers on the public internet, and holomem is local | no |
+| Other agents with a stdio MCP client (Gemini CLI, Cursor, dot, …) | yes | not supported |
+
 ## Memory tools
 
 | Tool | What it does |
