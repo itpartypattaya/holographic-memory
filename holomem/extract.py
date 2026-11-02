@@ -28,14 +28,31 @@ _RE_REACTION = re.compile(
     r'\bI\s+(?:really\s+|also\s+|just\s+|totally\s+|do\s+)?(?:prefer|like|love|use)\s+'
     r'(?:it|(?:this|that|these|those)(?:\s+[^\W\d_]+)?)' + _REACTION_END +
     r'|(?:^|\s)я\s+(?:тоже\s+|очень\s+)?(?:предпочитаю|люблю|использую)\s+'
-    r'(?:это|то|такое|(?:этот|эта|это|эти|тот|та|те)\s+[^\W\d_]+)' + _REACTION_END,
+    r'(?:это|то|такое|(?:этот|эта|это|эту|эти|тот|та|ту|те)\s+[^\W\d_]+)' + _REACTION_END,
     re.IGNORECASE)
+
+
+_RE_THIS_NOUN = re.compile(r'\b(?:this|that|these|those)\s+[^\W\d_]+|(?:этот|эта|это|эту|эти|тот|та|ту|те)\s+[^\W\d_]+',
+                           re.IGNORECASE)
+
+
+def _names_its_object(sentence: str, match: re.Match) -> bool:
+    """The thing is named right after, between two marks: "I prefer this database — PostgreSQL — for all my
+    projects", "I use this editor, VS Code, for everything" (Codex review 2026-11-02). A name starts with a capital or
+    a digit, so "I like this idea, thanks, let's go" stays a reply."""
+    said = match.group(0).rstrip()
+    if not said or said[-1] not in "—–-," or not _RE_THIS_NOUN.search(said):
+        return False
+    close = re.escape("—–-") if said[-1] in "—–-" else ","
+    return re.match(rf'\s*[A-ZА-ЯЁ\d][^{close}]{{0,40}}?(?:[{close}]\s*\w|[.!?]?\s*$)',
+                    sentence[match.end():]) is not None
 
 
 def _reaction(sentence: str, categories) -> bool:
     """A sentence that states no preference but a reply to the assistant (_RE_REACTION), with nothing left that
     would be extracted once the reply is taken out ("I like that, I always use tabs" keeps its second half)."""
-    if not _RE_REACTION.search(sentence):
+    found = list(_RE_REACTION.finditer(sentence))
+    if not found or any(_names_its_object(sentence, m) for m in found):
         return False
     rest = _RE_REACTION.sub(" ", sentence)
     return not any(p.search(rest) for patterns, _ in categories for p in patterns)
@@ -54,7 +71,8 @@ def extract(memory: Memory, ctx: Context, text: str) -> list[int]:
         return stored  # a prompt pasted whole: its sentences pass one by one, and none is the person's
     for sentence in (m.group(0).strip() for m in _RE_SENTENCE.finditer(text)):
         if len(sentence) < _extract_floor(sentence) or len(sentence) > _EXTRACT_MAX_CHARS \
-                or _fact_problem(sentence) or _not_a_fact(sentence, person=True) or _RE_QUESTION.search(sentence)                 or _reaction(sentence, _EXTRACT_CATEGORIES):
+                or _fact_problem(sentence) or _not_a_fact(sentence, person=True) or _RE_QUESTION.search(sentence) \
+                or _reaction(sentence, _EXTRACT_CATEGORIES):
             continue
         for patterns, category in _EXTRACT_CATEGORIES:
             if any(p.search(sentence) for p in patterns):

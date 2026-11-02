@@ -965,14 +965,24 @@ def _recall_problem(content: str) -> str | None:
 # should handle it …", Codex review) and a second-person fact ("You received a parcel from DHL") stay facts. English
 # and Russian. Not in _fact_problem: its decisions are 0.22.0's to the string, which
 # tests/test_holographic_screen_speed.py holds them to; the writes and recall ask both.
-_RE_ROLE_OPEN = re.compile(r"\A\s*(?:you\s+are|you['’]re|(?:ты|вы)\s*[—–-])\s*\S", re.IGNORECASE)
+# Codex review 2026-11-02: who it is is a name or a role ("You are Henry", "You are a/the …"), not "You are allowed /
+# required to …"; a task received in a condition ("once you have received a ticket", _RE_CONDITION) belongs to a rule.
+_RE_ROLE_OPEN = re.compile(r"\A\s*(?:(?i:you\s+are|you['’]re)\s+"
+                           r"(?:(?i:an?|the|my|our)\s+\S|[A-ZА-ЯЁ]"
+                           r"|(?!(?i:allowed|required|permitted|authorized|authorised)\b)"
+                           r"[a-z][a-z0-9_-]*(?=\s*[,.;:]))"
+                           r"|(?i:ты|вы)\s*[—–-]\s*\S)")
 _RE_ROLE_TASK = re.compile(
-    r"\byou\s+(?:have\s+)?(?:just\s+)?received\s+(?:an?\s+|a\s+new\s+)?(?:e-?mail|message|task|request|ticket)"
+    r"\byou\s+(?:have\s+)?(?:just\s+)?received\s+(?:an?\s+|a\s+new\s+|the\s+following\s+|this\s+|these\s+)?"
+    r"(?:e-?mail|message|task|request|ticket)"
     r"|\byou\s+have\s+(?:an?\s+)?new\s+(?:e-?mail|message|task|request|ticket)"
     r"|^\s*(?:e-?mail|message|task)\s+metadata\s*$"
-    r"|(?:тебе|вам)\s+(?:пришло|пришла|пришёл|поступило|поступила)\s+(?:новое\s+|новая\s+)?(?:письмо|сообщение|задача"
-    r"|задание|заявка)",
+    r"|(?:тебе|вам)\s+(?:пришло|пришла|приш[её]л|поступило|поступила|поступил)\s+"
+    r"(?:новое\s+|новая\s+|новый\s+|следующее\s+|следующая\s+|следующий\s+)?"
+    r"(?:письмо|сообщение|задача|задание|заявка|запрос|тикет)\b",
     re.IGNORECASE | re.MULTILINE)
+_RE_CONDITION = re.compile(r"\b(?:once|when|whenever|after|if|until|before|unless|as\s+soon\s+as|in\s+case|когда|если"
+                           r"|после\s+того\s+как|как\s+только|в\s+случае(?:\s+если)?)\s+\Z", re.IGNORECASE)
 
 
 # The agent's account of its own steps (hermes-agent#117790): "I just read the file and updated the config as
@@ -992,7 +1002,8 @@ _RE_FOR_YOU = re.compile(r"\bas\s+(?:you\s+)?(?:requested|asked|instructed)\b(?!
 def _role_prompt(content: str) -> bool:
     """A prompt to an assistant, not a fact (_RE_ROLE_OPEN and _RE_ROLE_TASK)."""
     text = content or ""
-    return _RE_ROLE_OPEN.search(text) is not None and _RE_ROLE_TASK.search(text) is not None
+    return _RE_ROLE_OPEN.search(text) is not None and any(
+        _RE_CONDITION.search(text, 0, m.start()) is None for m in _RE_ROLE_TASK.finditer(text))
 
 
 def _not_a_fact(content: str, person: bool = False) -> str | None:
@@ -1004,7 +1015,7 @@ def _not_a_fact(content: str, person: bool = False) -> str | None:
                 "e.g. 'Henry handles the deal-flow inbox', and keep tasks out of memory")
     if not person and _RE_OWN_STEP.search(content or "") and _RE_FOR_YOU.search(content or ""):
         return ("reads like a report of steps taken for the person, not a fact: store what is now true, e.g. 'The "
-                "config uses port 8080', or nothing")
+                "config uses port 8080', or nothing (the person's own words: origin 'said')")
     return None
 
 

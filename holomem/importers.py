@@ -207,7 +207,11 @@ def main(args) -> int:
     if args.source == "claude-memory":
         client = "claude-code"
         if args.path:
-            candidates = claude_candidates(Path(args.path).expanduser(), problems=problems)
+            root = Path(args.path).expanduser()
+            if not root.is_dir():
+                _problem(problems, f"cannot read directory: {root}")
+            else:
+                candidates = claude_candidates(root, problems=problems)
         else:
             for root, origin in claude_sources():
                 candidates += claude_candidates(root, origin, problems)

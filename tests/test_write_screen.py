@@ -121,3 +121,119 @@ def test_auto_extract_does_not_take_a_pasted_prompt_apart(memory):
     text = ("You are Mia, the family assistant. You received a new message from the school.\n"
             "I prefer short answers in Russian. I always use tabs in Python.")
     assert extracted(memory, text) == []
+
+
+# Codex review 2026-11-02 (all new code): four misses of the screen above.
+
+FOLLOWING = ("You are Henry, the deal-flow assistant. You received the following email from the founder. Handle it like "
+             "a normal Henry request.")
+
+
+def test_a_prompt_that_received_the_following_email_is_refused_and_not_recalled(tools, tmp_path):
+    answer, is_error = call(tools, "memory_add", content=FOLLOWING, origin="inferred")
+    assert is_error and "prompt to an assistant" in answer["error"], answer
+    home = tmp_path / "older"
+    (role,) = seed(home, [(FOLLOWING, [])])
+    block = context(hook(home, "user-prompt", prompt("What email did Henry receive from the founder?")))
+    assert f"#{role} " not in block, block
+
+
+CONDITIONAL = ["You are allowed to deploy once you have received a ticket from the owner.",
+               "You are required to answer within a day when you have received a request from a client."]
+
+
+@pytest.mark.parametrize("text", CONDITIONAL)
+def test_a_rule_with_a_condition_stays_a_fact(tools, text):
+    answer, is_error = call(tools, "memory_add", content=text, origin="said")
+    assert not is_error and answer["status"] == "added", answer
+
+
+def test_a_rule_with_a_condition_stored_before_is_recalled(tmp_path):
+    home = tmp_path / "holo"
+    (rule,) = seed(home, [(CONDITIONAL[0], [])])
+    block = context(hook(home, "user-prompt", prompt("Am I allowed to deploy after a ticket from the owner?")))
+    assert f"#{rule} " in block, block
+
+
+PASSPORT = "I updated my passport in March as you asked."
+
+
+def test_the_persons_own_words_can_be_corrected_changed_and_reverted(tools):
+    fact = call(tools, "memory_add", content=PASSPORT, origin="said")[0]["fact_id"]
+    answer, is_error = call(tools, "memory_correct", fact_id=fact, content="I updated my passport in April as you asked.")
+    assert not is_error and answer["status"] == "corrected", answer  # a correction keeps the fact's origin
+    answer, is_error = call(tools, "memory_change", fact_id=fact, origin="said",
+                            content="I renewed my passport in May as you asked.")
+    assert not is_error and answer["status"] == "changed", answer
+    answer, is_error = call(tools, "memory_change", fact_id=fact, content="I keep my passport in the safe.")
+    assert not is_error, answer
+    answer, is_error = call(tools, "memory_revert", fact_id=fact)  # back to the person's own words
+    assert not is_error and answer["status"] == "reverted", answer
+
+
+def test_the_agents_report_stays_refused_on_change_correct_and_revert(tools, memory):
+    fact = call(tools, "memory_add", content="The config uses port 8080", origin="inferred")[0]["fact_id"]
+    for tool in ("memory_change", "memory_correct"):
+        answer, is_error = call(tools, tool, fact_id=fact, content=STEPS)
+        assert is_error and "report of steps" in answer["error"], (tool, answer)
+    old = memory.store.add_fact(STEPS)  # stored before the screen knew it, with no origin
+    assert not call(tools, "memory_change", fact_id=old, content="The config uses port 8080 now")[1]
+    answer, is_error = call(tools, "memory_revert", fact_id=old)
+    assert is_error and "report of steps" in answer["error"], answer
+
+
+@pytest.mark.parametrize("text", ["I prefer this database — PostgreSQL — for all my projects.",
+                                  "I use this editor, VS Code, for everything I write."])
+def test_auto_extract_keeps_a_preference_that_names_its_object(memory, text):
+    assert extracted(memory, text) == [text]
+
+
+def test_auto_extract_still_skips_a_reply_with_a_thanks_inside(memory):
+    assert extracted(memory, "I like this idea, thanks, let's go.") == []
+
+
+@pytest.mark.parametrize("text", ["I prefer this database — PostgreSQL.", "I use this editor, VS Code.",
+                                  "I use this runtime, Node.js."])
+def test_named_preference_at_end_is_kept(memory, text):
+    assert extracted(memory, text) == [text]
+
+
+@pytest.mark.parametrize("text", ["Я предпочитаю эту версию.", "Я использую ту библиотеку."])
+def test_unnamed_russian_reaction_is_not_saved(memory, text):
+    assert extracted(memory, text) == []
+
+
+@pytest.mark.parametrize("text", ["Вы — помощник. Вам пришел новый запрос от клиента.",
+                                  "Ты — помощник. Тебе поступил тикет от клиента."])
+def test_russian_role_prompt_with_request_is_refused(tools, text):
+    answer, error = call(tools, "memory_add", content=text, origin="inferred")
+    assert error and "prompt to an assistant" in answer["error"]
+
+
+@pytest.mark.parametrize("text", ["You are our engineer in case you have received a ticket from the owner.",
+                                  "Вы — инженер в случае если вам пришел запрос от клиента."])
+def test_conditional_role_rule_stays_a_fact(tools, text):
+    answer, error = call(tools, "memory_add", content=text, origin="said")
+    assert not error and answer["status"] == "added", answer
+
+
+def test_existing_condition_protects_a_role_rule(tools):
+    text = "You are our engineer once you have received a ticket from the owner."
+    answer, error = call(tools, "memory_add", content=text, origin="said")
+    assert not error and answer["status"] == "added", answer
+
+
+def test_lowercase_assistant_name_is_neither_stored_nor_recalled(tools, tmp_path):
+    text = "You are henry, the deal-flow assistant. You received an email from the founder."
+    answer, error = call(tools, "memory_add", content=text, origin="inferred")
+    assert error and "prompt to an assistant" in answer["error"]
+    home = tmp_path / "older-lowercase"
+    (role,) = seed(home, [(text, [])])
+    block = context(hook(home, "user-prompt", prompt("What email did henry receive from the founder?")))
+    assert f"#{role} " not in block
+
+
+def test_permission_rule_with_comma_stays_a_fact(tools):
+    text = "You are allowed, when you received a ticket from the owner, to deploy the service."
+    answer, error = call(tools, "memory_add", content=text, origin="said")
+    assert not error and answer["status"] == "added", answer
