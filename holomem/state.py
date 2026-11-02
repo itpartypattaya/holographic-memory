@@ -1,4 +1,4 @@
-"""The bridge's own bookkeeping, kept apart from the fact store: ``$HOLOMEM_HOME/state.db``.
+"""holomem's own bookkeeping, kept apart from the fact store: ``$HOLOMEM_HOME/state.db``.
 
 A hook is a new process at every prompt, so what a long-running process would keep in memory between turns lives here: the turn
 number of each session and which revision of which fact was recalled at which turn (the repeat window,

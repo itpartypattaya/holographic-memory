@@ -1,6 +1,6 @@
 """The task-outcome journal (experience = true): which recall offered which facts, and what the agent says came of it.
 
-Requirements (an opt-in journal, with the bridge's own session link in state.db):
+Requirements (an opt-in journal, with holomem's own session link in state.db):
 - with experience on, a recall that injects facts ends its block with "Memory attempt: <32 hex>", and the
   prefetch_max_tokens budget counts that line (a fact line that no longer fits is left out whole); a recall that
   injects nothing, and every recall with experience off, leaves no journal table in the store;

@@ -195,7 +195,7 @@ def _meaning(memory: Memory, state: State, query: str, whole: str, budget: Budge
 
 def recall(memory: Memory, state: State, ctx: Context, prompt: str, budget: Budget | None = None) -> str:
     """The block for this prompt, "" when nothing is relevant."""
-    from .engine.screen import _recall_problem, _sendable
+    from .engine.screen import _recall_problem, _role_prompt, _sendable
 
     budget = budget or Budget()
     cfg, store, retriever = memory.cfg, memory.store, memory.retriever
@@ -211,7 +211,7 @@ def recall(memory: Memory, state: State, ctx: Context, prompt: str, budget: Budg
         if last is not None and turn - last <= cfg.prefetch_repeat_turns:
             trace.observe("rejected_repeat", [fact])
             return False
-        if _recall_problem(fact.get("content", "")) is not None:
+        if _recall_problem(fact.get("content", "")) is not None or _role_prompt(fact.get("content", "")):
             trace.observe("rejected_safety", [fact])
             return False
         return True

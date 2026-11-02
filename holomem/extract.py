@@ -1,6 +1,6 @@
 """Auto-extraction (``auto_extract = true``, off by default): sentences of the person's prompt kept as facts.
 
-The user's sentences that state a preference or a decision are stored. The bridge applies the engine's patterns
+The user's sentences that state a preference or a decision are stored. holomem applies the engine's patterns
 (``engine/extract_patterns.py``) to each prompt as the hook receives it: there the client hands over exactly what the
 person typed, while its transcript mixes in instruction files, system notes and tool results under the same "user"
 role. A sentence is skipped when it is a question, too short or too long, fails the engine's write screen
@@ -10,25 +10,51 @@ Stored at ``default_trust - 0.1``: unconfirmed, below hand-added facts.
 from __future__ import annotations
 
 import logging
+import re
 
 from .memory import Context, Memory
 
 logger = logging.getLogger("holomem")
 
+# A reply to the assistant is not a preference (hermes-agent#22907, ported 2026-11-02): "I like that, sounds good",
+# "ok, I love it", "I prefer this one" like whatever the assistant just said, and stored they say nothing on their own.
+# Their object is "it", or this / that / these / those and at most one word, and the clause ends there (a degree word
+# may follow: "better", "a lot"). "I like it when …", "I like that you …" and "I use this laptop for work" go on, and
+# are kept; so are "them", «его», «их»: more often people than a proposal. The clause ends at a mark, a dash or an
+# emoji, not at a dot inside a name ("this Node.js library") nor at a colon, which says what the object is.
+_REACTION_END = (r'(?:\s+(?:better|more|most|best|too|a\s+lot|very\s+much|so\s+much))*\s*'
+                 r'(?:[,;…)—–]|[.!](?!\w)|-(?=\s)|[☀-➿🌀-🫿]|$)')
+_RE_REACTION = re.compile(
+    r'\bI\s+(?:really\s+|also\s+|just\s+|totally\s+|do\s+)?(?:prefer|like|love|use)\s+'
+    r'(?:it|(?:this|that|these|those)(?:\s+[^\W\d_]+)?)' + _REACTION_END +
+    r'|(?:^|\s)я\s+(?:тоже\s+|очень\s+)?(?:предпочитаю|люблю|использую)\s+'
+    r'(?:это|то|такое|(?:этот|эта|это|эти|тот|та|те)\s+[^\W\d_]+)' + _REACTION_END,
+    re.IGNORECASE)
+
+
+def _reaction(sentence: str, categories) -> bool:
+    """A sentence that states no preference but a reply to the assistant (_RE_REACTION), with nothing left that
+    would be extracted once the reply is taken out ("I like that, I always use tabs" keeps its second half)."""
+    if not _RE_REACTION.search(sentence):
+        return False
+    rest = _RE_REACTION.sub(" ", sentence)
+    return not any(p.search(rest) for patterns, _ in categories for p in patterns)
+
 
 def extract(memory: Memory, ctx: Context, text: str) -> list[int]:
     """Store the sentences of *text* that state a preference or decision; returns the new fact ids."""
     from .engine.extract_patterns import _EXTRACT_CATEGORIES
-    from .engine.screen import _EXTRACT_MAX_CHARS, _RE_QUESTION, _RE_SENTENCE, _extract_floor, _fact_problem
+    from .engine.screen import (_EXTRACT_MAX_CHARS, _RE_QUESTION, _RE_SENTENCE, _extract_floor, _fact_problem,
+                                _not_a_fact, _role_prompt)
 
     store, retriever = memory.store, memory.retriever
     trust = max(0.0, memory.cfg.default_trust - 0.1)
     stored: list[int] = []
-    if not isinstance(text, str) or len(text) < _extract_floor(text):
-        return stored
+    if not isinstance(text, str) or len(text) < _extract_floor(text) or _role_prompt(text):
+        return stored  # a prompt pasted whole: its sentences pass one by one, and none is the person's
     for sentence in (m.group(0).strip() for m in _RE_SENTENCE.finditer(text)):
         if len(sentence) < _extract_floor(sentence) or len(sentence) > _EXTRACT_MAX_CHARS \
-                or _fact_problem(sentence) or _RE_QUESTION.search(sentence):
+                or _fact_problem(sentence) or _not_a_fact(sentence, person=True) or _RE_QUESTION.search(sentence)                 or _reaction(sentence, _EXTRACT_CATEGORIES):
             continue
         for patterns, category in _EXTRACT_CATEGORIES:
             if any(p.search(sentence) for p in patterns):

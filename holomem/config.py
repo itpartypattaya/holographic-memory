@@ -1,11 +1,11 @@
-"""Settings of the bridge: ``$HOLOMEM_HOME/config.toml`` (``~/.holographic/config.toml`` by default).
+"""Settings of holomem: ``$HOLOMEM_HOME/config.toml`` (``~/.holographic/config.toml`` by default).
 
 Every key is optional. A value that is not of its kind, outside its set, or a file that does not parse turns memory off
 (``problems``): the hooks then recall nothing and the tools say why. The reason names the key and what it must be,
-never the value: a key or token pasted into the wrong line must not reach a prompt or a log. A key the bridge does
+never the value: a key or token pasted into the wrong line must not reach a prompt or a log. A key holomem does
 not know is a warning (``warnings``): a typo would otherwise leave its setting at the default without a word.
 ``rerank_url`` holding credentials (``user:pass@``), a query or a fragment is a problem too: the engine would keep them
-in the address it calls, and the bridge never stores or shows an address.
+in the address it calls, and holomem never stores or shows an address.
 """
 from __future__ import annotations
 
@@ -116,7 +116,7 @@ class Config:
 
     @property
     def state_path(self) -> Path:
-        """The bridge's own bookkeeping (turn numbers, what was recalled when): never inside the fact store."""
+        """holomem's own bookkeeping (turn numbers, what was recalled when): never inside the fact store."""
         return self.home / "state.db"
 
     @property

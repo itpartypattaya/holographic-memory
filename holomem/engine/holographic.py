@@ -5,27 +5,54 @@ to cosine similarity; atoms derive deterministically from SHA-256 so representat
 machines, and Python versions. References: Plate (1995) HRRs; Gayler (2004) Vector Symbolic Architectures."""
 
 import hashlib
+import importlib.util
+import logging
 import math
 import struct
+import sys
 
 np = None  # numpy is loaded on first use (see _numpy): this module may be imported from inside
 # an import lock while another thread starts, and a top-level numpy import there once deadlocked
 # a worker inside numpy._core._multiarray_umath's create_module.
 _TRIED = False  # _numpy() has tried already; np alone cannot say (None is both "not yet" and "missing")
+_ERROR = ""  # why a numpy that is installed did not load; "" when it loaded, is missing, or was not tried yet
+logger = logging.getLogger(__name__)
 
 
 def _numpy():
-    """numpy, imported on first use; None when it is not installed."""
-    global np, _TRIED
+    """numpy, imported on first use; None when it is not installed or does not load. A numpy that is installed but
+    raises on import (its BLAS sanity check: RuntimeError; its Windows wheel's DLL folder: OSError) is taken as
+    missing and said once (2026-11-02: it raised out of opening the store, and the hook recalled nothing)."""
+    global np, _TRIED, _ERROR
     if not _TRIED:
         try:
             import numpy as np
-        except ImportError:
+        except Exception as exc:  # noqa: BLE001 - installed but broken is missing too, see above
             np = None
+            if numpy_findable():  # missing is a setup and stays silent; broken is said
+                _ERROR = f"{type(exc).__name__}: {exc}"[:200]
+                logger.warning("holographic: numpy is installed but did not load (%s); structural recall and search "
+                               "by meaning stay off, recall goes on by words", _ERROR)
         # Publish only a completed attempt. Concurrent callers must reach Python's
         # import lock rather than mistake an in-progress import for missing numpy.
         _TRIED = True
     return np
+
+
+def numpy_findable() -> bool:
+    """Whether Python can find numpy, without importing it."""
+    loaded = sys.modules.get("numpy", ...)
+    if loaded is not ...:  # imported elsewhere, or blocked with sys.modules["numpy"] = None
+        return loaded is not None
+    try:
+        return importlib.util.find_spec("numpy") is not None
+    except (ImportError, ValueError):
+        return False
+
+
+def numpy_error() -> str:
+    """Why an installed numpy did not load, once an import was tried; "" otherwise."""
+    return _ERROR
 
 
 def has_numpy() -> bool:

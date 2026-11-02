@@ -2,7 +2,7 @@
 
 Requirement: with no file the defaults hold and memory works; a value is read from the file; a number that is not
 one, a value outside a key's set, or a file that does not parse turns memory off with a reason that names the key
-and never quotes the value (a key pasted into the wrong line must not reach a prompt or a log); a key the bridge does
+and never quotes the value (a key pasted into the wrong line must not reach a prompt or a log); a key holomem does
 not know is reported as a warning, not silently dropped; HOLOMEM_HOME moves the whole directory; ``~`` in db_path is
 the home directory; scope "project" keeps one database per project.
 """

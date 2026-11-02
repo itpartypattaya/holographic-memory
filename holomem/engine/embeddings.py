@@ -41,14 +41,13 @@ np = None  # numpy is optional and loaded on first use (see _numpy): this module
 
 
 def _numpy():
-    """numpy, imported on first use; None when it is not installed (the feature stays off)."""
+    """numpy, imported on first use; None when it is not installed or does not load (the feature stays off): one
+    loader for the engine, holographic's, which takes a numpy that raises on import as missing and says so once."""
     global np
     if np is None:
-        try:
-            import numpy as _np
-        except ImportError:  # pragma: no cover - optional, as for HRR: without it the feature stays off
-            return None
-        np = _np
+        from . import holographic
+
+        np = holographic._numpy()
     return np
 
 logger = logging.getLogger(__name__)
@@ -330,7 +329,9 @@ class Embedder:
         """Why the endpoint cannot be used at all ("" when it can): numpy, the address, the key. Never the key's value:
         a key with a line break inside would make the HTTP library raise an error quoting the header."""
         if _numpy() is None:
-            return "numpy is not installed"
+            from .holographic import numpy_error
+
+            return f"numpy did not load ({numpy_error()})" if numpy_error() else "numpy is not installed"
         if self._refused:
             return self._refused
         name = self.settings.key_env

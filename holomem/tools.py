@@ -68,15 +68,16 @@ SCHEMAS = [
                                                       "limit": {"type": "integer", "minimum": 1, "maximum": _MAX_LIMIT}},
                      "required": ["entity"]}},
     {"name": "memory_change", "description": "The fact changed in the world: the new text becomes current, the old "
-     "one is kept as history.",
+     "one is kept as history. The old text's keywords go unless given again (the answer names them).",
      "inputSchema": {"type": "object", "properties": {"fact_id": _ID, "content": {"type": "string"},
                                                       "valid_from": _DAY, "entities": _ENTITIES, "keywords": _KEYWORDS,
                                                       "expect": _EXPECT},
                      "required": ["fact_id", "content"]}},
     {"name": "memory_correct", "description": "The fact was wrong: the right text (and/or start date) replaces it; the "
-     "wrong one never comes back as the past.",
+     "wrong one never comes back as the past. Keywords given replace the fact's; without them it keeps its own.",
      "inputSchema": {"type": "object", "properties": {"fact_id": _ID, "content": {"type": "string"},
-                                                      "valid_from": _DAY, "entities": _ENTITIES, "expect": _EXPECT},
+                                                      "valid_from": _DAY, "entities": _ENTITIES, "keywords": _KEYWORDS,
+                                                      "expect": _EXPECT},
                      "required": ["fact_id"]}},
     {"name": "memory_end", "description": "The fact no longer holds and nothing replaces it.",
      "inputSchema": {"type": "object", "properties": {"fact_id": _ID, "valid_to": _DAY, "expect": _EXPECT},
@@ -251,6 +252,14 @@ def _unkept(result: dict, value, stored: str | None) -> dict:
     return result
 
 
+def write_problem(text: str, person: bool = False) -> str | None:
+    """Why *text* is not stored, changed or reverted to: the engine's _fact_problem (unsafe), then _not_a_fact (no fact
+    though safe: a prompt to an assistant, the agent's report of its own steps unless *person* said it; 2026-11-02)."""
+    from .engine.screen import _fact_problem, _not_a_fact
+
+    return _fact_problem(text) or _not_a_fact(text, person)
+
+
 def split_tags(stored: str | None) -> tuple[str, list[str]]:
     text = stored or ""
     if text.startswith(_KW_MARK):
@@ -373,10 +382,8 @@ class Tools:
         except (TypeError, ValueError):
             raise Refusal("fact_id must be an integer") from None
 
-    def _screen(self, text: str, what: str) -> None:
-        from .engine.screen import _fact_problem
-
-        problem = _fact_problem(text)
+    def _screen(self, text: str, what: str, person: bool = False) -> None:
+        problem = write_problem(text, person)
         if problem:
             raise Refusal(f"Not {what}: {problem}.")
 
@@ -405,7 +412,7 @@ class Tools:
         content = a["content"]
         if not isinstance(content, str) or not content.strip():
             raise Refusal("content must be a non-empty sentence")
-        self._screen(content, "stored")
+        self._screen(content, "stored", person=a.get("origin") in ("said", "confirmed"))
         words = self._keyword_check(a, "stored")
         content = content.strip()
         store = self.store
@@ -456,20 +463,36 @@ class Tools:
             tags = join_tags(split_tags(stored)[0], words)
             if stored is None and a.get("keywords") is None:
                 tags = None  # an ended fact resumes with its last version's tags
-            result = self.store.change_fact(fact_id, content, valid_from=a.get("valid_from"), tags=tags,
-                                            entities=_entities(a), source=self.ctx.source("tool"))
-        return self._unlinked(_with_dropped(dict(result), a.get("keywords")), a)
+            result = dict(self.store.change_fact(fact_id, content, valid_from=a.get("valid_from"), tags=tags,
+                                                 entities=_entities(a), source=self.ctx.source("tool")))
+        cleared = split_tags(stored)[1] if a.get("keywords") is None and stored is not None else []
+        if cleared and result.get("status") == "changed":  # 2026-11-02: they went without a word
+            result["keywords_cleared"] = cleared
+            result["hint"] = (result.get("hint", "") + " The old text's keywords went with it: memory_update "
+                              f"{{fact_id: {fact_id}, keywords}} gives the new text its own.").strip()
+        return self._unlinked(_with_dropped(result, a.get("keywords")), a)
 
     def memory_correct(self, a: dict) -> dict:
         if a.get("content") is None and not a.get("valid_from"):
             raise Refusal("memory_correct needs the right text in 'content' and/or the right start in 'valid_from'")
         if a.get("content") is not None:
             self._screen(a["content"], "corrected")
+        words = self._keyword_check(a, "corrected")
         fact_id = self._fact(a)
         with self._expecting(a, "memory_correct"):
-            result = self.store.correct_fact(fact_id, a.get("content"), valid_from=a.get("valid_from"),
-                                             entities=_entities(a), source=self.ctx.source("tool"))
-        return self._unlinked(dict(result), a)
+            tags = None  # no keywords given: the corrected version keeps the fact's
+            if a.get("keywords") is not None:  # given: they replace the fact's, as on memory_update (2026-11-02)
+                tags = join_tags(split_tags(self.store.fact_tags(fact_id))[0], words)
+            result = dict(self.store.correct_fact(fact_id, a.get("content"), valid_from=a.get("valid_from"),
+                                                  entities=_entities(a), source=self.ctx.source("tool"), tags=tags))
+        if tags is not None:
+            if result.get("status") == "corrected":
+                result["keywords"] = words
+                _with_dropped(result, a.get("keywords"))
+            else:  # nothing corrected, nothing written
+                result["keywords_not_set"] = ("nothing was corrected, so the keywords were not written; memory_update "
+                                              f"{{fact_id: {fact_id}, keywords}} replaces them")
+        return self._unlinked(result, a)
 
     def memory_end(self, a: dict) -> dict:
         fact_id = self._fact(a)
@@ -477,7 +500,7 @@ class Tools:
             return dict(self.store.end_fact(fact_id, valid_to=a.get("valid_to")))
 
     def memory_revert(self, a: dict) -> dict:
-        return dict(self.store.revert_fact(self._fact(a)))
+        return dict(self.store.revert_fact(self._fact(a), screen=write_problem))
 
     def memory_forget(self, a: dict) -> dict:
         fact_id = self._fact(a)
@@ -736,7 +759,7 @@ class Tools:
         raise Refusal("action must be one of: alias, rename, delete, split")
 
     def memory_experience(self, a: dict) -> dict:
-        """The task-outcome journal over the bridge's links (journal.py): an attempt is found by its id in this
+        """The task-outcome journal over holomem's links (journal.py): an attempt is found by its id in this
         database, whichever session of it recorded the attempt."""
         if not self.cfg.experience:
             raise Refusal("the task-outcome journal is off (experience = false in config.toml)")

@@ -1,6 +1,6 @@
 """Rescoring (rerank = true), against a local Cohere-shaped /v1/rerank endpoint started by the test.
 
-Requirements (rescoring, with the bridge's state across processes):
+Requirements (rescoring, with holomem's state across processes):
 - with rerank on, the facts recalled before a turn follow the endpoint's scores (a fact third by words can come
   first); with it off the block is exactly today's and nothing is sent;
 - rerank_window (weight 0) cuts the low tail of the scored facts, never below two; a fact recall shows but must not

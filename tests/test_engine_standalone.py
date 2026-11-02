@@ -5,7 +5,7 @@ a database at a path it is given, stores facts and finds them, and opens the sam
 older version made (no ``hrr_vector`` column); it never switches an on-disk WAL database to DELETE, and never turns WAL
 on where the linked SQLite has the WAL-reset bug; with no path it keeps ``memory_store.db`` in holomem's home
 (``$HOLOMEM_HOME``, the same file the settings name by default). No module of another program is imported, by name or
-by a stand-in put into ``sys.modules``: every module the engine and the bridge import is the standard library, the two
+by a stand-in put into ``sys.modules``: every module the engine and holomem import is the standard library, the two
 declared dependencies, or holomem's own.
 
 Each case runs in a fresh interpreter (``-I``), as Claude Code or Codex would start a hook or the MCP server: nothing

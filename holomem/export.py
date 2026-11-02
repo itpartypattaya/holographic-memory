@@ -42,7 +42,7 @@ WITHHELD = " (withheld from recall)"
 
 
 def source_line(src: dict | None) -> str:
-    """Where a version was written, as the export's line in the bridge's source shape:
+    """Where a version was written, as the export's line in holomem's source shape:
     "tool · said · claude-code project <key> · session <id> · recorded 2026-10-30"."""
     if not src:
         return "source unknown"
@@ -56,7 +56,7 @@ def source_line(src: dict | None) -> str:
 def render(store, *, category: str | None = None, min_trust: float = 0.0, limit: int | None = None,
            chars: int | None = None) -> dict:
     """{markdown, count[, merged]}: up to *limit* facts (None: every one), texts cut at *chars* (None: whole)."""
-    from .engine.screen import _recall_problem
+    from .engine.screen import _recall_problem, _role_prompt
 
     total = store.count_facts()
     facts = store.list_facts(category=category, min_trust=min_trust,
@@ -75,7 +75,7 @@ def render(store, *, category: str | None = None, min_trust: float = 0.0, limit:
     for f in facts:
         linked = ", ".join(sorted(names.get(f["fact_id"], [])))
         lines.append(f"- #{f['fact_id']} [{f['trust_score']:.2f}, {f['category']}] {cut(f['content'])}"
-                     + (WITHHELD if _recall_problem(f["content"] or "") else "")
+                     + (WITHHELD if _recall_problem(f["content"] or "") or _role_prompt(f["content"] or "") else "")
                      + (f" — {linked}" if linked else "")
                      + f"\n  _{source_line(sources.get(f['fact_id']))}_")
     result: dict = {"markdown": "\n".join(lines), "count": len(facts)}

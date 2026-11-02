@@ -11,7 +11,7 @@ process would keep in memory between turns a hook cannot — it is a new process
   60 s, doubling to 900 s, until an answer clears it; while paused no process calls it, and a call not made is not a
   new failure. A Rescorer is made for each call, so its own in-memory pause never answers in state.db's place: a warm
   server whose Rescorer had paused itself would skip calls state.db already allows.
-- The speed the endpoint showed: the last 5 samples (seconds per character of the pairs) in state.db, and the bridge
+- The speed the endpoint showed: the last 5 samples (seconds per character of the pairs) in state.db, and holomem
   decides how many of the first documents a call sends (the engine's ``fitting``, over every process's samples): as
   many as the slowest sample scores in half the call's timeout, two at least; top_k before any sample. A sample is the
   wall time of an answered call, or the timeout of one that ran out after the connection was up (a lower bound; a

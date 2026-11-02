@@ -1,4 +1,4 @@
-"""The task-outcome journal (``experience = true``): the engine's receipts and outcomes, with the link the bridge needs.
+"""The task-outcome journal (``experience = true``): the engine's receipts and outcomes, with the link holomem needs.
 
 The engine (``engine/experience.py``) keeps a receipt of each recall and search that offered facts — which facts, at
 which version, and with ``experience_trace`` the ids each stage saw — and an outcome the agent reports against it
@@ -6,7 +6,7 @@ which version, and with ``experience_trace`` the ids each stage saw — and an o
 changes: it is a journal for a review. Receipts and outcomes live 30 days (at most 1000), go with a forgotten fact
 (the engine's triggers, then a file rewrite) and are read by ``memory_experience`` and ``holomem export --journal``.
 
-How the bridge records them across processes:
+How holomem records them across processes:
 - The engine takes an outcome only from the session key that recorded the attempt. Here a hook (a new process with
   the client's session id) records the attempt and the MCP server (session ``mcp-<pid>``, which never learns the
   client's id) records the outcome, so each attempt is linked in state.db to its session, client and database, and an
