@@ -34,6 +34,10 @@ def session_block(tmp_path: Path, user: Path, *, client: str = "claude-code", cw
     base = {k: v for k, v in os.environ.items()
             if k not in ("CLAUDE_CODE_DISABLE_AUTO_MEMORY", "CLAUDE_CONFIG_DIR")}
     base.update({"HOLOMEM_HOME": str(tmp_path / "holo"), "HOME": str(user), "USERPROFILE": str(user), **env})
+    # What the block says is tested here, not how fast a new store opens: a cold Windows runner took over 8 s to create
+    # one, and the hook gave up with nothing to say (CI 2026-11-02, "gave up after 8.0 s, still in open")
+    (tmp_path / "holo").mkdir(exist_ok=True)
+    (tmp_path / "holo" / "config.toml").write_text("hook_deadline_seconds = 25\n", encoding="utf-8")
     proc = subprocess.run([sys.executable, "-I", "-c", LAUNCH, str(ROOT), "hook", "session-start", "--client", client],
                           input=json.dumps({"session_id": "s1", "cwd": cwd, "source": "startup"}).encode(),
                           capture_output=True, env=base, timeout=60)

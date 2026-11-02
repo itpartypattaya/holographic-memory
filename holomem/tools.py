@@ -43,6 +43,10 @@ _EXPECT = {"type": "object", "additionalProperties": {"type": "integer"},
            "description": "Optional {\"<fact_id>\": <version_id>} as memory_history shows them: write only while each "
                           "named fact is still at that version (otherwise nothing is written: changed_since)."}
 
+_ORIGIN = {"type": "string", "enum": ["said", "confirmed", "inferred"],
+           "description": "said: the person stated it; confirmed: they agreed; inferred: your conclusion."}
+_PERSON = ("said", "confirmed")
+
 SCHEMAS = [
     {"name": "memory_add", "description": "Store a durable fact as one short standalone sentence (local store). The "
      "answer lists similar facts and possible conflicts: if one changed into this, use memory_change on it instead.",
@@ -50,9 +54,7 @@ SCHEMAS = [
          "content": {"type": "string"}, "category": {"type": "string",
                                                      "enum": ["user_pref", "project", "tool", "general"]},
          "entities": _ENTITIES, "keywords": _KEYWORDS, "valid_from": _DAY,
-         "origin": {"type": "string", "enum": ["said", "confirmed", "inferred"],
-                    "description": "said: the person stated it; confirmed: they agreed; inferred: your conclusion."}},
-         "required": ["content"]}},
+         "origin": _ORIGIN}, "required": ["content"]}},
     {"name": "memory_search", "description": "Search stored facts by words, in any word form and language; as_of: what "
      "held on that day.", "readOnly": True,
      "inputSchema": {"type": "object", "properties": {
@@ -71,13 +73,14 @@ SCHEMAS = [
      "one is kept as history. The old text's keywords go unless given again (the answer names them).",
      "inputSchema": {"type": "object", "properties": {"fact_id": _ID, "content": {"type": "string"},
                                                       "valid_from": _DAY, "entities": _ENTITIES, "keywords": _KEYWORDS,
-                                                      "expect": _EXPECT},
+                                                      "origin": _ORIGIN, "expect": _EXPECT},
                      "required": ["fact_id", "content"]}},
     {"name": "memory_correct", "description": "The fact was wrong: the right text (and/or start date) replaces it; the "
-     "wrong one never comes back as the past. Keywords given replace the fact's; without them it keeps its own.",
+     "wrong one never comes back as the past. Keywords given replace the fact's; without them it keeps its own. "
+     "Without an origin it keeps the fact's.",
      "inputSchema": {"type": "object", "properties": {"fact_id": _ID, "content": {"type": "string"},
                                                       "valid_from": _DAY, "entities": _ENTITIES, "keywords": _KEYWORDS,
-                                                      "expect": _EXPECT},
+                                                      "origin": _ORIGIN, "expect": _EXPECT},
                      "required": ["fact_id"]}},
     {"name": "memory_end", "description": "The fact no longer holds and nothing replaces it.",
      "inputSchema": {"type": "object", "properties": {"fact_id": _ID, "valid_to": _DAY, "expect": _EXPECT},
@@ -252,6 +255,16 @@ def _unkept(result: dict, value, stored: str | None) -> dict:
     return result
 
 
+def _origin(a: dict) -> str | None:
+    """The 'origin' argument of a write (said, confirmed, inferred), or None when not given."""
+    origin = a.get("origin")
+    if origin is None:
+        return None
+    if origin not in _ORIGIN["enum"]:
+        raise Refusal("origin must be said, confirmed or inferred")
+    return origin
+
+
 def write_problem(text: str, person: bool = False) -> str | None:
     """Why *text* is not stored, changed or reverted to: the engine's _fact_problem (unsafe), then _not_a_fact (no fact
     though safe: a prompt to an assistant, the agent's report of its own steps unless *person* said it; 2026-11-02)."""
@@ -412,7 +425,7 @@ class Tools:
         content = a["content"]
         if not isinstance(content, str) or not content.strip():
             raise Refusal("content must be a non-empty sentence")
-        self._screen(content, "stored", person=a.get("origin") in ("said", "confirmed"))
+        self._screen(content, "stored", person=a.get("origin") in _PERSON)
         words = self._keyword_check(a, "stored")
         content = content.strip()
         store = self.store
@@ -455,7 +468,8 @@ class Tools:
         content = a["content"]
         if not isinstance(content, str) or not content.strip():
             raise Refusal("memory_change needs the new text in 'content'")
-        self._screen(content, "changed")
+        origin = _origin(a)
+        self._screen(content, "changed", person=origin in _PERSON)
         words = self._keyword_check(a, "changed")
         fact_id = self._fact(a)
         with self._expecting(a, "memory_change"):
@@ -464,7 +478,8 @@ class Tools:
             if stored is None and a.get("keywords") is None:
                 tags = None  # an ended fact resumes with its last version's tags
             result = dict(self.store.change_fact(fact_id, content, valid_from=a.get("valid_from"), tags=tags,
-                                                 entities=_entities(a), source=self.ctx.source("tool")))
+                                                 entities=_entities(a),
+                                                 source=self.ctx.source("tool", origin=origin or "")))
         cleared = split_tags(stored)[1] if a.get("keywords") is None and stored is not None else []
         if cleared and result.get("status") == "changed":  # 2026-11-02: they went without a word
             result["keywords_cleared"] = cleared
@@ -475,16 +490,19 @@ class Tools:
     def memory_correct(self, a: dict) -> dict:
         if a.get("content") is None and not a.get("valid_from"):
             raise Refusal("memory_correct needs the right text in 'content' and/or the right start in 'valid_from'")
-        if a.get("content") is not None:
-            self._screen(a["content"], "corrected")
-        words = self._keyword_check(a, "corrected")
+        origin = _origin(a)
         fact_id = self._fact(a)
+        if a.get("content") is not None:  # a correction keeps the fact's origin: the person's words stay theirs
+            mine = origin or (self.store.origins([fact_id]).get(fact_id) or {}).get("origin")
+            self._screen(a["content"], "corrected", person=mine in _PERSON)
+        words = self._keyword_check(a, "corrected")
         with self._expecting(a, "memory_correct"):
             tags = None  # no keywords given: the corrected version keeps the fact's
             if a.get("keywords") is not None:  # given: they replace the fact's, as on memory_update (2026-11-02)
                 tags = join_tags(split_tags(self.store.fact_tags(fact_id))[0], words)
             result = dict(self.store.correct_fact(fact_id, a.get("content"), valid_from=a.get("valid_from"),
-                                                  entities=_entities(a), source=self.ctx.source("tool"), tags=tags))
+                                                  entities=_entities(a), tags=tags,
+                                                  source=self.ctx.source("tool", origin=origin or "")))
         if tags is not None:
             if result.get("status") == "corrected":
                 result["keywords"] = words
@@ -500,7 +518,9 @@ class Tools:
             return dict(self.store.end_fact(fact_id, valid_to=a.get("valid_to")))
 
     def memory_revert(self, a: dict) -> dict:
-        return dict(self.store.revert_fact(self._fact(a), screen=write_problem))
+        # the version made current again is screened as what it was: the person's words stay theirs (Codex review)
+        return dict(self.store.revert_fact(self._fact(a),
+                                           screen=lambda text, origin: write_problem(text, origin in _PERSON)))
 
     def memory_forget(self, a: dict) -> dict:
         fact_id = self._fact(a)
