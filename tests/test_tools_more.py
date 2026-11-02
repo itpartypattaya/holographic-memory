@@ -175,7 +175,11 @@ def test_the_store_follows_the_clock_change_without_a_restart(tmp_path):
         print(json.dumps([[str(d.time()), d.fold, d.timestamp()] for d in
                           (datetime.datetime.fromtimestamp(t, tz) for t in twice)]))
     """)
-    env = {**os.environ, "TZ": "PST8PDT", "HOLOMEM_HOME": str(tmp_path / "holo")}
+    # The US rules written into the zone itself, not left to a zone file: ubuntu-26.04 ships no PST8PDT file (the old
+    # names moved to tzdata-legacy), and glibc then took a default rule that ended summer time in October, so the
+    # machine itself said 01:30 PDT was 00:30 PST (CI, 2026-11-02). Windows' C runtime reads the short form.
+    zone = "PST8PDT" if os.name == "nt" else "PST8PDT,M3.2.0,M11.1.0"
+    env = {**os.environ, "TZ": zone, "HOLOMEM_HOME": str(tmp_path / "holo")}
     done = subprocess.run([sys.executable, "-I", "-c", code, str(Path(__file__).resolve().parent.parent),
                            str(tmp_path / "facts.db")], capture_output=True, text=True, env=env, timeout=60)
     assert done.returncode == 0, done.stderr[-1500:]
