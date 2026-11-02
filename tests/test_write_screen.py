@@ -237,3 +237,19 @@ def test_permission_rule_with_comma_stays_a_fact(tools):
     text = "You are allowed, when you received a ticket from the owner, to deploy the service."
     answer, error = call(tools, "memory_add", content=text, origin="said")
     assert not error and answer["status"] == "added", answer
+
+
+# Review 2026-11-03 of the fixes above: a name may close the sentence, a reply word may not; a lowercase name is one
+# only with its role after it ("you are henry, the … assistant"), not any word before a comma or a full stop.
+
+@pytest.mark.parametrize("text", ["I like this idea — Great!", "I love this plan — Perfect.", "I like this idea, Thanks.",
+                                  "I like this idea, Thanks, let's go.", "I like this plan — Sounds good!"])
+def test_a_reply_word_after_a_reaction_is_no_name(memory, text):
+    assert extracted(memory, text) == []
+
+
+@pytest.mark.parametrize("text", ["You are late. You received a message from the boss yesterday.",
+                                  "You are right, you received a ticket from Mark."])
+def test_a_second_person_fact_with_a_lowercase_word_stays_a_fact(tools, text):
+    answer, is_error = call(tools, "memory_add", content=text, origin="said")
+    assert not is_error and answer["status"] == "added", answer

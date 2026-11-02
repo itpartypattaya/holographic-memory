@@ -34,18 +34,24 @@ _RE_REACTION = re.compile(
 
 _RE_THIS_NOUN = re.compile(r'\b(?:this|that|these|those)\s+[^\W\d_]+|(?:этот|эта|это|эту|эти|тот|та|ту|те)\s+[^\W\d_]+',
                            re.IGNORECASE)
+_REPLY_WORD = (r'(?:thanks|thank\s+you|great|perfect|awesome|nice|cool|sure|ok|okay|yes|yep|yeah|agreed|exactly'
+               r'|excellent|wonderful|fantastic|amazing|brilliant|lovely|good|fine|deal|done|sounds\s+(?:good|great)'
+               r'|love\s+it|good\s+job|well\s+done|спасибо|отлично|супер|класс|круто|согласен|согласна|да|хорошо'
+               r'|понятно|прекрасно|замечательно|договорились)')
+_RE_REPLY_WORDS = re.compile(_REPLY_WORD + r'(?:[\s,!.]+' + _REPLY_WORD + r')*', re.IGNORECASE)
 
 
 def _names_its_object(sentence: str, match: re.Match) -> bool:
     """The thing is named right after, between two marks: "I prefer this database — PostgreSQL — for all my
     projects", "I use this editor, VS Code, for everything" (Codex review 2026-11-02). A name starts with a capital or
-    a digit, so "I like this idea, thanks, let's go" stays a reply."""
+    a digit, so "I like this idea, thanks, let's go" stays a reply; so does a reply word with a capital ("I like this
+    idea — Great!", "…, Thanks.": _RE_REPLY_WORDS, review 2026-11-03)."""
     said = match.group(0).rstrip()
     if not said or said[-1] not in "—–-," or not _RE_THIS_NOUN.search(said):
         return False
     close = re.escape("—–-") if said[-1] in "—–-" else ","
-    return re.match(rf'\s*[A-ZА-ЯЁ\d][^{close}]{{0,40}}?(?:[{close}]\s*\w|[.!?]?\s*$)',
-                    sentence[match.end():]) is not None
+    named = re.match(rf'\s*([A-ZА-ЯЁ\d][^{close}]{{0,40}}?)(?:[{close}]\s*\w|[.!?]?\s*$)', sentence[match.end():])
+    return named is not None and _RE_REPLY_WORDS.fullmatch(named.group(1).strip(" .!?…")) is None
 
 
 def _reaction(sentence: str, categories) -> bool:

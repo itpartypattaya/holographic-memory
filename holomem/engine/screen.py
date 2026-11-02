@@ -969,8 +969,7 @@ def _recall_problem(content: str) -> str | None:
 # required to …"; a task received in a condition ("once you have received a ticket", _RE_CONDITION) belongs to a rule.
 _RE_ROLE_OPEN = re.compile(r"\A\s*(?:(?i:you\s+are|you['’]re)\s+"
                            r"(?:(?i:an?|the|my|our)\s+\S|[A-ZА-ЯЁ]"
-                           r"|(?!(?i:allowed|required|permitted|authorized|authorised)\b)"
-                           r"[a-z][a-z0-9_-]*(?=\s*[,.;:]))"
+                           r"|[a-z][a-z0-9_-]*(?=,\s*(?i:the|an?|our|my|your)\s))"  # "you are henry, the … assistant"
                            r"|(?i:ты|вы)\s*[—–-]\s*\S)")
 _RE_ROLE_TASK = re.compile(
     r"\byou\s+(?:have\s+)?(?:just\s+)?received\s+(?:an?\s+|a\s+new\s+|the\s+following\s+|this\s+|these\s+)?"
