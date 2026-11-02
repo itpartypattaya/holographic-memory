@@ -974,11 +974,12 @@ _RE_ROLE_TASK = re.compile(
     r"(?:e-?mail|message|task|request|ticket)"
     r"|\byou\s+have\s+(?:an?\s+)?new\s+(?:e-?mail|message|task|request|ticket)"
     r"|^\s*(?:e-?mail|message|task)\s+metadata\s*$"
-    r"|(?:тебе|вам)\s+(?:пришло|пришла|пришёл|поступило|поступила)\s+(?:новое\s+|новая\s+|следующее\s+|следующая\s+)?"
-    r"(?:письмо|сообщение|задача|задание|заявка)",
+    r"|(?:тебе|вам)\s+(?:пришло|пришла|приш[её]л|поступило|поступила|поступил)\s+"
+    r"(?:новое\s+|новая\s+|новый\s+|следующее\s+|следующая\s+|следующий\s+)?"
+    r"(?:письмо|сообщение|задача|задание|заявка|запрос|тикет)\b",
     re.IGNORECASE | re.MULTILINE)
-_RE_CONDITION = re.compile(r"\b(?:once|when|whenever|after|if|until|before|unless|as\s+soon\s+as|когда|если"
-                           r"|после\s+того\s+как|как\s+только)\s+\Z", re.IGNORECASE)
+_RE_CONDITION = re.compile(r"\b(?:once|when|whenever|after|if|until|before|unless|as\s+soon\s+as|in\s+case|когда|если"
+                           r"|после\s+того\s+как|как\s+только|в\s+случае(?:\s+если)?)\s+\Z", re.IGNORECASE)
 
 
 # The agent's account of its own steps (hermes-agent#117790): "I just read the file and updated the config as

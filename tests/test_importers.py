@@ -19,6 +19,15 @@ import pytest
 
 from holomem import importers
 
+
+def test_explicit_missing_claude_directory_is_an_error(tmp_path, capsys):
+    from types import SimpleNamespace
+
+    path = tmp_path / "missing"
+    code = importers.main(SimpleNamespace(source="claude-memory", path=str(path), dry_run=True))
+    assert code == 1
+    assert "cannot read" in capsys.readouterr().out
+
 TOPIC = """---
 name: deploy-staging
 description: How billing reaches staging

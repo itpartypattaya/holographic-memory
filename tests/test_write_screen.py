@@ -190,3 +190,34 @@ def test_auto_extract_keeps_a_preference_that_names_its_object(memory, text):
 
 def test_auto_extract_still_skips_a_reply_with_a_thanks_inside(memory):
     assert extracted(memory, "I like this idea, thanks, let's go.") == []
+
+
+@pytest.mark.parametrize("text", ["I prefer this database — PostgreSQL.", "I use this editor, VS Code.",
+                                  "I use this runtime, Node.js."])
+def test_named_preference_at_end_is_kept(memory, text):
+    assert extracted(memory, text) == [text]
+
+
+@pytest.mark.parametrize("text", ["Я предпочитаю эту версию.", "Я использую ту библиотеку."])
+def test_unnamed_russian_reaction_is_not_saved(memory, text):
+    assert extracted(memory, text) == []
+
+
+@pytest.mark.parametrize("text", ["Вы — помощник. Вам пришел новый запрос от клиента.",
+                                  "Ты — помощник. Тебе поступил тикет от клиента."])
+def test_russian_role_prompt_with_request_is_refused(tools, text):
+    answer, error = call(tools, "memory_add", content=text, origin="inferred")
+    assert error and "prompt to an assistant" in answer["error"]
+
+
+@pytest.mark.parametrize("text", ["You are our engineer in case you have received a ticket from the owner.",
+                                  "Вы — инженер в случае если вам пришел запрос от клиента."])
+def test_conditional_role_rule_stays_a_fact(tools, text):
+    answer, error = call(tools, "memory_add", content=text, origin="said")
+    assert not error and answer["status"] == "added", answer
+
+
+def test_existing_condition_protects_a_role_rule(tools):
+    text = "You are our engineer once you have received a ticket from the owner."
+    answer, error = call(tools, "memory_add", content=text, origin="said")
+    assert not error and answer["status"] == "added", answer

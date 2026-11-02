@@ -28,11 +28,11 @@ _RE_REACTION = re.compile(
     r'\bI\s+(?:really\s+|also\s+|just\s+|totally\s+|do\s+)?(?:prefer|like|love|use)\s+'
     r'(?:it|(?:this|that|these|those)(?:\s+[^\W\d_]+)?)' + _REACTION_END +
     r'|(?:^|\s)я\s+(?:тоже\s+|очень\s+)?(?:предпочитаю|люблю|использую)\s+'
-    r'(?:это|то|такое|(?:этот|эта|это|эти|тот|та|те)\s+[^\W\d_]+)' + _REACTION_END,
+    r'(?:это|то|такое|(?:этот|эта|это|эту|эти|тот|та|ту|те)\s+[^\W\d_]+)' + _REACTION_END,
     re.IGNORECASE)
 
 
-_RE_THIS_NOUN = re.compile(r'\b(?:this|that|these|those)\s+[^\W\d_]+|(?:этот|эта|это|эти|тот|та|те)\s+[^\W\d_]+',
+_RE_THIS_NOUN = re.compile(r'\b(?:this|that|these|those)\s+[^\W\d_]+|(?:этот|эта|это|эту|эти|тот|та|ту|те)\s+[^\W\d_]+',
                            re.IGNORECASE)
 
 
@@ -43,8 +43,9 @@ def _names_its_object(sentence: str, match: re.Match) -> bool:
     said = match.group(0).rstrip()
     if not said or said[-1] not in "—–-," or not _RE_THIS_NOUN.search(said):
         return False
-    close = "—–-" if said[-1] in "—–-" else ","
-    return re.match(rf'\s*[A-ZА-ЯЁ\d][^{close}]{{0,40}}[{close}]\s*\w', sentence[match.end():]) is not None
+    close = re.escape("—–-") if said[-1] in "—–-" else ","
+    return re.match(rf'\s*[A-ZА-ЯЁ\d][^{close}]{{0,40}}?(?:[{close}]\s*\w|[.!?]?\s*$)',
+                    sentence[match.end():]) is not None
 
 
 def _reaction(sentence: str, categories) -> bool:
