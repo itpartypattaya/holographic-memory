@@ -203,7 +203,7 @@ Questions and problems: [issues](https://github.com/itpartypattaya/holographic-m
 | `memory_search` | find facts by words in any word form and language; `as_of` for what held on a day; with search by meaning, also by meaning (`match: "meaning"`); with rescoring, in its order |
 | `memory_probe` / `memory_related` | everything about a person or thing / facts structurally related to it (HRR) |
 | `memory_reason` | facts that involve all of the named people or things |
-| `memory_change` / `memory_correct` / `memory_end` / `memory_revert` | it changed / it was wrong / it no longer holds / undo the last of these; history is kept. A change drops the old text's keywords unless given again (`keywords_cleared` names them); keywords given with a correction replace the fact's, otherwise it keeps its own |
+| `memory_change` / `memory_correct` / `memory_end` / `memory_revert` | it changed / it was wrong / it no longer holds / undo the last of these; history is kept. A change drops the old text's keywords unless given again (`keywords_cleared` names them); keywords given with a correction replace the fact's, otherwise it keeps its own. `origin` (said / confirmed / inferred) as on `memory_add`: a correction without one keeps the fact's, a change without one is the agent's own claim |
 | `memory_merge` | two or more facts say the same thing: they become part of one, their history and sources stay under it, their keywords are joined |
 | `memory_forget` | delete a fact with its whole history, when the person asks to forget it |
 | `memory_history` | a fact's versions: what it said when, where each was written, what was merged into it |
@@ -234,8 +234,10 @@ is written. Up to 0.5.0 such a key was dropped without a word (0.4.0 ignored an 
 prompt to an assistant ("You are Henry, … You received an email …": who it is and a task it received), and one stored
 by an older version is not recalled before a message; a rule for the assistant ("You are allowed to push to main")
 stays a fact. The agent's account of its own steps ("I read the file and updated the config as requested") is
-refused unless `origin` says the person said or confirmed it. A revert to an earlier version the screen now refuses
-is refused too. With `auto_extract` on, a reply to the assistant ("I like that, sounds good") is no preference, and a
+refused unless `origin` says the person said or confirmed it: on `memory_add` and `memory_change`, on
+`memory_correct` the fact's own origin when none is given ("I updated my passport in March as you asked", said by the
+person, can be corrected). A revert to an earlier version the screen now refuses is refused too; the earlier version is
+screened by its own origin. With `auto_extract` on, a reply to the assistant ("I like that, sounds good") is no preference, and a
 prompt pasted whole is not taken apart sentence by sentence.
 
 **A Latin word inside Chinese, Japanese, Korean or Thai text is found by itself.** The search index holds
