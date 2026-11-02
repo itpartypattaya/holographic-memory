@@ -221,3 +221,19 @@ def test_existing_condition_protects_a_role_rule(tools):
     text = "You are our engineer once you have received a ticket from the owner."
     answer, error = call(tools, "memory_add", content=text, origin="said")
     assert not error and answer["status"] == "added", answer
+
+
+def test_lowercase_assistant_name_is_neither_stored_nor_recalled(tools, tmp_path):
+    text = "You are henry, the deal-flow assistant. You received an email from the founder."
+    answer, error = call(tools, "memory_add", content=text, origin="inferred")
+    assert error and "prompt to an assistant" in answer["error"]
+    home = tmp_path / "older-lowercase"
+    (role,) = seed(home, [(text, [])])
+    block = context(hook(home, "user-prompt", prompt("What email did henry receive from the founder?")))
+    assert f"#{role} " not in block
+
+
+def test_permission_rule_with_comma_stays_a_fact(tools):
+    text = "You are allowed, when you received a ticket from the owner, to deploy the service."
+    answer, error = call(tools, "memory_add", content=text, origin="said")
+    assert not error and answer["status"] == "added", answer

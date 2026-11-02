@@ -967,7 +967,10 @@ def _recall_problem(content: str) -> str | None:
 # tests/test_holographic_screen_speed.py holds them to; the writes and recall ask both.
 # Codex review 2026-11-02: who it is is a name or a role ("You are Henry", "You are a/the …"), not "You are allowed /
 # required to …"; a task received in a condition ("once you have received a ticket", _RE_CONDITION) belongs to a rule.
-_RE_ROLE_OPEN = re.compile(r"\A\s*(?:(?i:you\s+are|you['’]re)\s+(?:(?i:an?|the|my|our)\s+\S|[A-ZА-ЯЁ])"
+_RE_ROLE_OPEN = re.compile(r"\A\s*(?:(?i:you\s+are|you['’]re)\s+"
+                           r"(?:(?i:an?|the|my|our)\s+\S|[A-ZА-ЯЁ]"
+                           r"|(?!(?i:allowed|required|permitted|authorized|authorised)\b)"
+                           r"[a-z][a-z0-9_-]*(?=\s*[,.;:]))"
                            r"|(?i:ты|вы)\s*[—–-]\s*\S)")
 _RE_ROLE_TASK = re.compile(
     r"\byou\s+(?:have\s+)?(?:just\s+)?received\s+(?:an?\s+|a\s+new\s+|the\s+following\s+|this\s+|these\s+)?"
