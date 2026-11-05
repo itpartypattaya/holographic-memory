@@ -94,8 +94,10 @@ class FakeEndpoint:
 def endpoint(monkeypatch):
     fake = FakeEndpoint()
     monkeypatch.setattr(embeddings, "_OPENER", fake)
-    monkeypatch.setenv("TEST_EMBEDDINGS_KEY", "sk-test-not-a-real-key")
     return fake
+
+
+KEYS = {"TEST_EMBEDDINGS_KEY": "sk-test-not-a-real-key"}  # what the program opening the endpoint found
 
 
 ON = {"embeddings": "on", "embedding_url": "https://embeddings.example.net/v1", "embedding_model": "fake-1",
@@ -112,7 +114,7 @@ def _vectors(p) -> dict:
 def test_the_pause_grows_and_ends_with_a_success(tmp_path, endpoint, monkeypatch):
     clock = [1000.0]
     monkeypatch.setattr(embeddings, "_now", lambda: clock[0])
-    e = embeddings.Embedder(embeddings.Settings(ON))
+    e = embeddings.Embedder(embeddings.Settings(ON), values=KEYS)
     endpoint.fail = urllib.error.URLError("refused")
     assert e.embed(["a"]) is None
     clock[0] += 61
@@ -178,8 +180,8 @@ def test_a_real_local_server_round_trip_and_no_redirects(monkeypatch):
         assert _Handler.seen[0][2] == {"model": "local", "input": ["backup at night", "violin"]}
         assert abs(float(np.linalg.norm(vectors[0])) - 1.0) < 1e-5
         assert float(vectors[0] @ np.asarray(fake_vector("backup at night")) / np.linalg.norm(fake_vector("backup at night"))) > 0.999
-        monkeypatch.setenv("LOCAL_KEY", "sk-local")
-        keyed = embeddings.Embedder(embeddings.Settings({"embedding_url": url, "embedding_key_env": "LOCAL_KEY"}))
+        keyed = embeddings.Embedder(embeddings.Settings({"embedding_url": url, "embedding_key_env": "LOCAL_KEY"}),
+                                    values={"LOCAL_KEY": "sk-local"})
         keyed.embed(["x"])
         assert _Handler.seen[-1][1] == "Bearer sk-local"
         _Handler.redirect = True  # the key must not follow a redirect anywhere

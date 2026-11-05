@@ -18,7 +18,9 @@ crash reports.
 - **A log**, `~/.holographic/holomem.log`: failures by their kind only, never a fact or a message.
 - **Vectors** of facts, only while search by meaning is on; turning it off deletes them.
 - **Your embeddings key**, if you put it in `~/.holographic/.env`. It is read from there or from the environment
-  variable you name, and sent only to the embeddings endpoint you configured.
+  variable you name, and sent only to the embeddings endpoint you configured. As a Claude Code plugin, the key is
+  only the plugin's own option, which Claude Code keeps in your system's secure storage; the plugin reads no key
+  from your environment or files.
 
 All of it stays in these files until you change or delete it. Nothing is kept in the plugin's folder, which Claude Code
 replaces on every update.

@@ -29,10 +29,10 @@ def test_retries_do_not_accumulate_timed_out_workers(monkeypatch):
     monkeypatch.setattr(embeddings, "_now", lambda: clock[0])
     stalls = _Stalls()
     monkeypatch.setattr(embeddings, "_OPENER", stalls)
-    monkeypatch.setenv("TEST_EMBEDDINGS_KEY", "sk-test-not-a-real-key")
     e = embeddings.Embedder(embeddings.Settings({
         "embeddings": "on", "embedding_url": "https://embeddings.example.net/v1", "embedding_model": "m",
-        "embedding_key_env": "TEST_EMBEDDINGS_KEY", "embedding_timeout": 0.5}))
+        "embedding_key_env": "TEST_EMBEDDINGS_KEY", "embedding_timeout": 0.5}),
+        values={"TEST_EMBEDDINGS_KEY": "sk-test-not-a-real-key"})
     before = threading.active_count()
     try:
         assert e.embed(["a"]) is None  # timed out: one worker left waiting
@@ -64,7 +64,7 @@ def test_secret_screening_json_payloads(text):
 def test_settings_key_env_with_secret_value_does_not_leak(pasted):
     e = embeddings.Embedder(embeddings.Settings({
         "embeddings": "on", "embedding_url": "https://embeddings.example.net/v1", "embedding_model": "m",
-        "embedding_key_env": pasted}), environ={})
+        "embedding_key_env": pasted}), values={})
     why = e.unavailable()
     assert "name of an environment variable" in why and pasted not in why and pasted not in e.status()
 

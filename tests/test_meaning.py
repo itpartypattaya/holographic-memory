@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import re
 import sqlite3
 import subprocess
@@ -30,6 +29,7 @@ from pathlib import Path
 import pytest
 
 from _launch import LAUNCH as _LAUNCH
+from _launch import child_env
 from test_hooks import context, hook, prompt, seed
 from test_mcp_server import Client
 
@@ -130,8 +130,7 @@ def config(ep: Endpoint, on: bool = True) -> str:
 
 
 def cli(home: Path, *args: str) -> subprocess.CompletedProcess:
-    env = {k: v for k, v in os.environ.items() if k != "HOLO_TEST_EMBED_KEY"}
-    env.update({"HOLOMEM_HOME": str(home), "PYTHONIOENCODING": "utf-8"})
+    env = child_env(drop=("HOLO_TEST_EMBED_KEY",), HOLOMEM_HOME=str(home), PYTHONIOENCODING="utf-8")
     return subprocess.run([sys.executable, "-I", "-c", _LAUNCH, str(ROOT), *args], capture_output=True, env=env,
                           timeout=120)
 

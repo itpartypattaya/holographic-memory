@@ -379,7 +379,7 @@ VALUES = (
     "hunter2", "Qwerty!23", "4821", "4821-7730", "(4821)", "[4821]", "0.125", "2026-10-15", "15.10.2026",
     "correct-horse", "correct-horse-battery", "Wi-Fi", "${OPENAI_API_KEY}", "%API_KEY%", "OPENAI_API_KEY", "***",
     "xxxx", "sk-...", "<your key>", "{token}", "{YOUR_API_KEY}", "[REDACTED]", "hidden", "скрыт",
-    "https://platform.openai.com/docs", "~/.atlas/.env", "/etc/secrets", "/Sunshine123", "C:\\keys\\a.key",
+    "https://example.com/docs", "~/.atlas/.env", "/etc/secrets", "/Sunshine123", "C:\\keys\\a.key",
     "token-saver-stats.jsonl", "password-reset.example.com", "token-saver==1.2", "saver/cache/", "8192", "128k",
     "128к", "120000", "1,000", "manager", "rotation", "expires", "Summer2026.txt", "MyName@gmail.com", "abc1",
     "1234", "ABCDEFGHIJKL", "abcdefghijkl", "Кот2024!", "40-минутный", "кв.123", "розовыйслон",

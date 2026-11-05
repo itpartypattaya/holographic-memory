@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "holographic-memory"
-version = "0.10.1"
+version = "0.11.0"
 description = "Holographic memory (local SQLite fact store with FTS5, trust scoring and HRR recall) for Claude Code and Codex CLI"
 requires-python = ">=3.11"
 license = { text = "MIT" }
@@ -21,7 +21,7 @@ holomem = "holomem.__main__:main"
 include = ["holomem*"]
 
 [tool.setuptools.package-data]
-"holomem.engine" = ["LICENSE", "LICENSES/*", "dictionaries/*"]
+"holomem.engine" = ["LICENSE", "LICENSES/*", "dictionaries/*", "dictionaries/*/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -33,3 +33,8 @@ line-length = 120
 [tool.ruff.lint]
 select = ["E", "F", "B", "BLE", "RUF100"]
 ignore = ["E501", "B905"]
+
+# CI's tools, locked in uv.lock with the rest (`uv run --locked --group test`); not a default group, so the plugin's
+# `uv run --locked` never installs them for a person
+[dependency-groups]
+test = ["pytest>=8", "ruff>=0.6"]

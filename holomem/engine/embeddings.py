@@ -296,10 +296,12 @@ class _GivenUp:
 class Embedder:
     """The endpoint: texts in, unit-length float32 vectors out. Shared by every store a process opens; thread-safe."""
 
-    def __init__(self, settings: Settings, environ=None):
-        import os
+    def __init__(self, settings: Settings, values=None):
+        """*values*: variable names to their values, as the program that opens the endpoint found them (holomem: its
+        .env file and the environment, or the Claude Code plugin's own option). The engine reads no environment of its
+        own: where the key may come from is the caller's to say; without values there is no key."""
         self.settings = settings
-        self._environ = os.environ if environ is None else environ
+        self._values = {} if values is None else values
         self._url, self._local, self._refused = _endpoint(settings.url)
         self._lock = threading.Lock()
         self._pause = self._paused_until = 0.0
@@ -323,7 +325,7 @@ class Embedder:
         self.last_batch = ""
 
     def _key(self) -> str:
-        return str(self._environ.get(self.settings.key_env) or "").strip() if self.settings.key_env else ""
+        return str(self._values.get(self.settings.key_env) or "").strip() if self.settings.key_env else ""
 
     def unavailable(self) -> str:
         """Why the endpoint cannot be used at all ("" when it can): numpy, the address, the key. Never the key's value:

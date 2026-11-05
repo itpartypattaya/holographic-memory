@@ -132,6 +132,11 @@ project's with `--scope project`), the plugin stands aside: its hooks print noth
 each message gets its facts once. For `holomem status`, `import` or `export` beside the plugin, install the command as
 above; it opens the same store.
 
+When the plugin is enabled, Claude Code asks for one optional value: **Embeddings API key**. Leave it empty unless you
+turn on [search by meaning](#search-by-meaning-optional-online). Claude Code keeps it in your system's secure storage
+and hands it to the plugin's hooks and server; the plugin takes the key from there only, never from your environment
+or `~/.holographic/.env` (those are for the `holomem` command).
+
 ### Bring what the agents already remember
 
 ```bash
@@ -166,7 +171,7 @@ on 31 October 2026:
 | Agent | Memory tools (MCP) | Recall before each message |
 |---|---|---|
 | Antigravity (Google, `agy`, app, IDE) | yes: `agy mcp add` | not yet: its hooks add context with `injectSteps` before every model call (`PreInvocation`), not per message, in another JSON format |
-| Grok Build (xAI's CLI) | yes: `grok mcp add`; it also loads the servers in `~/.claude.json`, so holomem installed for Claude Code is there already | no: it reads Claude Code's hook files too, but ignores what a hook of a passive event such as `UserPromptSubmit` prints |
+| Grok Build (xAI's CLI) | yes: `grok mcp add`; it also loads the MCP servers Claude Code has for the user, so holomem installed for Claude Code is there already | no: it reads Claude Code's hook files too, but ignores what a hook of a passive event such as `UserPromptSubmit` prints |
 | Grok in the browser, X or a messenger | no: a hosted chat reaches only remote MCP servers on the public internet, and holomem is local | no |
 | Other agents with a stdio MCP client (Gemini CLI, Cursor, dot, …) | yes | not supported |
 
@@ -183,7 +188,8 @@ on 31 October 2026:
 
 - **Runs:** `holomem hook user-prompt` before each message and `holomem hook session-start` when a session starts,
   each a short Python process; `holomem mcp`, a local MCP server over stdio, once per session. As a plugin each runs
-  through `uv run --locked --project ${CLAUDE_PLUGIN_ROOT}` from the plugin's own files (`holomem/`).
+  the plugin's own `scripts/holomem_plugin.py` (and through it `holomem/`) with
+  `uv run --locked --project ${CLAUDE_PLUGIN_ROOT}`.
 - **Stores:** facts, their history and the hooks' bookkeeping in `~/.holographic/` (or `$HOLOMEM_HOME`), never in the
   plugin folder. Nothing leaves your machine by default: no telemetry, no account, no model calls.
 - **Sends:** only when you turn them on, search by meaning sends fact texts and messages to the embeddings API you
@@ -328,7 +334,8 @@ OPENAI_API_KEY=sk-...
 ```
 
 The key can live in `~/.holographic/.env` rather than in your session's environment, where every other program that
-knows the variable's name would pick it up (Codex among them). A local server (Ollama, llama-server, LM Studio) at a
+knows the variable's name would pick it up (Codex among them). As a Claude Code plugin, the key is the plugin's option
+instead (see [the plugin](#or-as-a-claude-code-plugin)); `embedding_key_env` and the `.env` file are not read then. A local server (Ollama, llama-server, LM Studio) at a
 `localhost` or private address needs no key and may use plain `http`.
 
 Vectors are made in the background by the MCP server: when a session starts, right after each write, and every five
@@ -454,8 +461,9 @@ slow machine look alike from outside.
 - `holomem/hooks.py`, `recall.py`, `session.py`, `extract.py` — the hooks; `mcp_server.py`, `tools.py` — the server;
   `install.py`, `importers.py`, `embed.py`, `export.py`, `status.py` — the CLI (`export.py` also renders
   `memory_export`).
-- `.claude-plugin/`, `hooks/`, `skills/` — the Claude Code plugin, whose folder is the repository root (`uv.lock`
-  pins what it runs with); `.claude-plugin/marketplace.json` lists it.
+- `.claude-plugin/`, `hooks/`, `skills/`, `scripts/` — the Claude Code plugin, whose folder is the repository root
+  (`uv.lock` pins what it runs with; `scripts/holomem_plugin.py` is what its hooks and server start);
+  `.claude-plugin/marketplace.json` lists it.
 - `diagram/` — the three pictures above (SVG, with a PNG beside each).
 
 ## License

@@ -21,7 +21,6 @@ across two words is not that pair (和服 in 我和服务员) and a one-characte
 
 from __future__ import annotations
 
-import gzip
 import io
 import logging
 import math
@@ -29,7 +28,6 @@ import re
 import sys
 import threading
 import unicodedata
-import zlib
 from dataclasses import dataclass
 from functools import cached_property, lru_cache
 from pathlib import Path
@@ -40,6 +38,25 @@ from .dictionaries.cjk_fold import SIMPLIFIED, TRADITIONAL
 # the bundled language data (tables and their licences: dictionaries/__init__.py, LICENSES/)
 _DICTIONARIES = Path(__file__).with_name("dictionaries")
 logger = logging.getLogger(__name__)
+
+
+def _read_table(folder: Path) -> str:
+    """The text of a bundled table: the parts in *folder* (01.tsv, 02.tsv, …) joined, each part's marks taken off.
+    Plain UTF-8 under 256 KiB a part, which the Claude plugin directory reads (it held the gzipped tables for review,
+    2026-11-05). Each part opens with "# part i/n" and closes with "# end i/n": one missing, cut short, out of place
+    or not UTF-8 raises ValueError (a missing folder: OSError), as a damaged .gz did, so half a table is never read as
+    a whole one. Windows line ends read as LF."""
+    parts = sorted(p for p in folder.iterdir() if p.suffix in (".tsv", ".txt"))
+    if not parts:
+        raise FileNotFoundError(folder)
+    body = []
+    for i, part in enumerate(parts, 1):
+        data = part.read_bytes().decode("utf-8").replace("\r\n", "\n")
+        head, tail = f"# part {i}/{len(parts)}\n", f"# end {i}/{len(parts)}\n"
+        if not (data.startswith(head) and data.endswith(tail)) or len(data) < len(head) + len(tail):
+            raise ValueError(f"{folder.name}/{part.name} is not part {i} of {len(parts)} whole")
+        body.append(data[len(head):len(data) - len(tail)])
+    return "".join(body)
 
 
 def _unreadable(path: Path, exc: BaseException) -> None:
@@ -147,7 +164,7 @@ _HAN_FOLD = True
 _FOLD_HAN = {**_FOLD, **str.maketrans(TRADITIONAL, SIMPLIFIED)}
 # Japanese spelling variants (表記揺れ) compare as the word's representative spelling, in text that has kana (so Chinese
 # text is never touched): 子ども = 子供, 引越し = 引越 = 引っ越し, スマホ = スマフォ. SudachiDict's synonym source, spellings of
-# one word only (ja_variants.tsv.gz, tools/build_ja_variants.py); stored text unchanged. See _ja_fold.
+# one word only (ja_variants/, tools/build_ja_variants.py); stored text unchanged. See _ja_fold.
 _JA_VARIANTS = True
 _ja_ready = False  # set at the end of this module: the word lists below are folded before the table may load
 _KANA = re.compile(r"[ぁ-ゖァ-ヺ]")  # hiragana and katakana letters (not ー or ・)
@@ -885,15 +902,15 @@ def _related(lang: str, stem_: str) -> frozenset:
             if pairs is None:
                 pairs = {}
                 try:
-                    with gzip.open(_DICTIONARIES / f"{lang}_derivation.tsv.gz", "rt", encoding="utf-8") as fh:
+                    with io.StringIO(_read_table(_DICTIONARIES / f"{lang}_derivation")) as fh:
                         for line in fh:
                             a, tab, b = line.rstrip("\n").partition("\t")
                             if tab and not line.startswith("#"):
                                 a, b = sys.intern(a), sys.intern(b)  # each stem kept once
                                 pairs[a] = pairs.get(a, ()) + (b,)
                                 pairs[b] = pairs.get(b, ()) + (a,)
-                except (OSError, EOFError, ValueError, zlib.error) as exc:  # missing or damaged data file: no roots
-                    _unreadable(_DICTIONARIES / f"{lang}_derivation.tsv.gz", exc)
+                except (OSError, EOFError, ValueError) as exc:  # missing or damaged data file: no roots
+                    _unreadable(_DICTIONARIES / f"{lang}_derivation", exc)
                     pairs = {}
                 _PAIRS[lang] = pairs
     return frozenset(pairs.get(stem_, ()))
@@ -974,7 +991,7 @@ def _en_rule_roots(word: str, stem_: str) -> frozenset:
 # -- German compounds --------------------------------------------------------------------------------------------
 # German writes a compound as one word: "Zahnarzttermin" is Zahn + Arzt + Termin, and no stem of it meets "Termin" or
 # "Zahnarzt". In text whose language is determined as German, a word is split by a dictionary of German lexemes from
-# Wikidata (CC0; de_compounds.tsv.gz, tools/build_de_es_lexicon.py), the way Koehn & Knight split compounds: parts
+# Wikidata (CC0; de_compounds/, tools/build_de_es_lexicon.py), the way Koehn & Knight split compounds: parts
 # of three letters or more joined by the linking elements German uses (-s-, -es-, -n-, -en-, -er-, -e-, a dropped -e),
 # the analysis with the fewest parts, parts that are rarely parts of other words only when nothing else fits, two
 # analyses that cut differently left whole unless one is clearly more likely ("Staubecken": Stau-Becken or
@@ -986,7 +1003,7 @@ def _en_rule_roots(word: str, stem_: str) -> frozenset:
 # parts, a compound in a question finds a fact that writes its parts apart ("Termin beim Zahnarzt").
 _DE_COMPOUNDS = True
 _DE_QUESTION_HEAD = _DERIV_WEIGHT  # a compound of the question whose last part alone is in a fact: "Elternabend" / "Abend"
-_DE_FILE = _DICTIONARIES / "de_compounds.tsv.gz"
+_DE_FILE = _DICTIONARIES / "de_compounds"
 _DE_TABLE: list = []  # [splitter] once loaded; [None] for a copy without the data file
 _DE_LOCK = threading.Lock()
 # separable verb particles, prepositions and prefixes: never a part ("Ausland" is not aus + Land)
@@ -1035,7 +1052,7 @@ class _DeSplitter:
     @classmethod
     def load(cls, path) -> "_DeSplitter":
         words, cuts = {}, {}
-        with gzip.open(path, "rt", encoding="utf-8") as fh:
+        with io.StringIO(_read_table(path)) as fh:
             for line in fh:
                 word, tab, code = line.rstrip("\n").partition("\t")
                 if not tab or line.startswith("#"):
@@ -1203,7 +1220,7 @@ def _de_splitter():
             if not _DE_TABLE:
                 try:
                     _DE_TABLE.append(_DeSplitter.load(_DE_FILE))
-                except (OSError, EOFError, ValueError, zlib.error, StopIteration, IndexError, KeyError) as exc:
+                except (OSError, EOFError, ValueError, StopIteration, IndexError, KeyError) as exc:
                     _unreadable(_DE_FILE, exc)  # missing or damaged
                     _DE_TABLE.append(None)
     return _DE_TABLE[0]
@@ -1232,11 +1249,11 @@ def _compound_keys(parts: tuple) -> tuple:
 # -- German and Spanish verb forms -------------------------------------------------------------------------------
 # Snowball leaves the forms of a strong or irregular verb apart from its lemma: "ging" is not "gehen", "fuhr" not
 # "fahren", "fue" not "ir" (or "ser"), "hizo" not "hacer". A table of such forms from Wikidata's German and Spanish
-# lexemes (CC0; de_es_forms.tsv.gz, tools/build_de_es_lexicon.py) gives the word the stems of its lemmas, at full
+# lexemes (CC0; de_es_forms/, tools/build_de_es_lexicon.py) gives the word the stems of its lemmas, at full
 # weight like a stem, in text of that language only (Snowball's own stem already joins the regular forms). Forms that
 # are also another word ("Macht", "vino", "cuenta") or a form of another verb are not in the table.
 _LEMMA_FORMS = True
-_FORMS_FILE = _DICTIONARIES / "de_es_forms.tsv.gz"
+_FORMS_FILE = _DICTIONARIES / "de_es_forms"
 _FORMS: dict[str, tuple] = {}  # language -> (form -> lemmas, lemma -> forms)
 _FORMS_LOCK = threading.Lock()
 
@@ -1251,7 +1268,7 @@ def _forms(lang: str) -> tuple:
                 forms: dict = {}
                 lemmas: dict = {}
                 try:
-                    with gzip.open(_FORMS_FILE, "rt", encoding="utf-8") as fh:
+                    with io.StringIO(_read_table(_FORMS_FILE)) as fh:
                         for line in fh:
                             code, _, rest = line.partition("\t")
                             if code != lang:
@@ -1263,7 +1280,7 @@ def _forms(lang: str) -> tuple:
                                 forms[form] = forms.get(form, ()) + (lemma,)
                     # a form under more than three verbs is an error of the source ("tuviese" under twelve)
                     forms = {form: under for form, under in forms.items() if len(under) <= 3}
-                except (OSError, EOFError, ValueError, zlib.error, IndexError, KeyError) as exc:  # missing or damaged
+                except (OSError, EOFError, ValueError, IndexError, KeyError) as exc:  # missing or damaged
                     _unreadable(_FORMS_FILE, exc)
                     forms, lemmas = {}, {}
                 table = _FORMS[lang] = (forms, lemmas)
@@ -1685,7 +1702,7 @@ _LATIN_IN_CJK = re.compile(r"[A-Za-z][A-Za-z0-9._:/-]*[A-Za-z0-9]|[A-Za-z0-9]*\d
 # Japanese writes one word in several ways: kanji or kana (子供 / 子ども, 一緒 / いっしょ), with more or less okurigana
 # (引越し / 引越 / 引っ越し, 申込 / 申し込み), katakana loanwords with or without the long vowel or small kana
 # (コンピュータ / コンピューター, ウイルス / ウィルス). Character n-grams cannot join these. SudachiDict's synonym source lists
-# them as spellings of one lexeme; ja_variants.tsv.gz keeps those spellings only, never synonyms (tools/
+# them as spellings of one lexeme; ja_variants/ keeps those spellings only, never synonyms (tools/
 # build_ja_variants.py). In text that has kana, each variant is replaced by its word's representative spelling, longest
 # first, left to right; a representative spelled as it is stays (so コンピュータ in コンピューター is not touched). There
 # are no spaces between Japanese words, so a variant is replaced only where its edges can be word edges:
@@ -1700,7 +1717,7 @@ _LATIN_IN_CJK = re.compile(r"[A-Za-z][A-Za-z0-9._:/-]*[A-Za-z0-9]|[A-Za-z0-9]*\d
 # 子供達), so folding folded text changes nothing. Variants inside the filler and greeting lists are left out, so those
 # still compare as written. Hiragana variants of two letters (いす, かに, おば) are not in the table. Loaded on the first
 # text with kana.
-_JA_FILE = _DICTIONARIES / "ja_variants.tsv.gz"
+_JA_FILE = _DICTIONARIES / "ja_variants"
 _JA_TABLE: tuple | None = None
 _JA_LOCK = threading.Lock()
 _JA_PARTICLES = frozenset("のはがをにでともへやかねよ")  # hiragana that may stand before or after a word
@@ -1731,12 +1748,12 @@ def _ja_table() -> tuple:
             if _JA_TABLE is None:
                 pairs: dict[str, str] = {}
                 try:
-                    with gzip.open(_JA_FILE, "rt", encoding="utf-8") as fh:
+                    with io.StringIO(_read_table(_JA_FILE)) as fh:
                         for line in fh:
                             variant, tab, target = line.rstrip("\n").partition("\t")
                             if tab and not line.startswith("#"):
                                 pairs[variant] = target
-                except (OSError, EOFError, ValueError, zlib.error) as exc:  # missing or damaged data file: no variants
+                except (OSError, EOFError, ValueError) as exc:  # missing or damaged data file: no variants
                     _unreadable(_JA_FILE, exc)
                     pairs = {}
                 # what _fold_text does to Japanese text (no Traditional -> Simplified), without its loop
@@ -1802,7 +1819,7 @@ def _ja_fold(text: str) -> str:
 # -- Chinese words ---------------------------------------------------------------------------------------------------
 # Chinese has no spaces, and character pairs cannot tell a word from the halves of two words: 和服 (kimono) is in
 # 我和服务员 ("I and the waiter"), 研究生 (graduate student) in 研究生命 ("to research life"). Text whose Han is Chinese
-# (no kana, no Hangul) is also split into words with jieba's dictionary (zh_words.txt.gz, tools/build_zh_words.py):
+# (no kana, no Hangul) is also split into words with jieba's dictionary (zh_words/, tools/build_zh_words.py):
 # the most probable split by word frequency, as jieba cuts without its HMM; a character that begins no word stands
 # alone. The words add to the n-grams, they do not replace them (a name the dictionary lacks is still found by its
 # pairs, a partial overlap still counts):
@@ -1827,7 +1844,7 @@ class _ZhTable(NamedTuple):
 
 
 _ZH_WORDS = True
-_ZH_FILE = _DICTIONARIES / "zh_words.txt.gz"
+_ZH_FILE = _DICTIONARIES / "zh_words"
 _ZH_TABLE: _ZhTable | None = None
 _ZH_LOCK = threading.Lock()
 _ZH_DIGITS = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"  # round(4 * ln f), one character
@@ -1850,8 +1867,7 @@ def _zh_table() -> _ZhTable:
                 longest: dict[str, int] = {}
                 total, logp, names = 0.0, {}, frozenset()
                 try:
-                    with gzip.open(_ZH_FILE, "rb") as fh:
-                        data = fh.read().decode("utf-8")
+                    data = _read_table(_ZH_FILE)
                     for line in io.StringIO(data):
                         line = line.rstrip("\n")
                         if not line or line[0] == "#":
@@ -1866,7 +1882,7 @@ def _zh_table() -> _ZhTable:
                             for rest in rests:
                                 words[first + rest[:-1]] = logp[rest[-1]]
                             longest[first] = max(map(len, rests))
-                except (OSError, EOFError, ValueError, KeyError, IndexError, UnicodeDecodeError, zlib.error) as exc:
+                except (OSError, EOFError, ValueError, KeyError, IndexError, UnicodeDecodeError) as exc:
                     _unreadable(_ZH_FILE, exc)
                     words, longest, total, names = {}, {}, 0.0, frozenset()  # no data, or damaged: no words
                 _ZH_TABLE = _ZhTable(words, longest, -total, total, names)

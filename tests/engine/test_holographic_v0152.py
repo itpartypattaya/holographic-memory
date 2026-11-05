@@ -37,7 +37,7 @@ def test_every_listed_variable_with_a_value_is_refused(name):
     f"TG_API_HASH={'0123456789abcdef' * 2}",  # listed: does not end like a secret
     f"QIANFAN_AK={VALUE}",
     f"Ключ OPENAI_API_KEY={VALUE} лежит в .env",
-    f"SLACK_WEBHOOK_URL=https://hooks.slack.com/services/T0/B0/{VALUE}",  # the link is the secret
+    f"SLACK_WEBHOOK_URL=https://hooks.example.com/services/T0/B0/{VALUE}",  # the link is the secret
     f"SENTRY_DSN=https://{VALUE}@o1.ingest.sentry.io/42",
     f"DATABASE_URL=postgres://app:{VALUE}@db:5432/app",  # a password inside an address
     f"see https://admin:{VALUE}@example.com",

@@ -30,13 +30,14 @@ def _quoting(exc_type=sqlite3.OperationalError):
 
 
 def test_a_damaged_dictionary_is_warned(tmp_path, monkeypatch, caplog):
-    bad = tmp_path / "ja_variants.tsv.gz"
-    bad.write_bytes(b"not gzip at all")
+    bad = tmp_path / "ja_variants"
+    bad.mkdir()
+    (bad / "01.tsv").write_bytes(b"not a part at all")
     monkeypatch.setattr(text, "_JA_FILE", bad)
     monkeypatch.setattr(text, "_JA_TABLE", None)
     with caplog.at_level(logging.WARNING):
         text._ja_table()
-    assert "ja_variants.tsv.gz could not be read" in caplog.text
+    assert "ja_variants could not be read" in caplog.text
     monkeypatch.setattr(text, "_JA_TABLE", None)  # the next test loads the real one again
 
 

@@ -43,10 +43,11 @@ def _clear_caches():
 # -- a damaged Chinese dictionary is a missing one ----------------------------------------------------------------
 
 def test_a_damaged_chinese_dictionary_gives_no_words(monkeypatch, tmp_path):
-    """A gzip header followed by garbage raises zlib.error (not EOFError, which a truncated file raises): the loader
-    must treat it as missing, or every Chinese text raises and the load is retried on each of them."""
-    damaged = tmp_path / "zh_words.txt.gz"
-    damaged.write_bytes(b"\x1f\x8b\x08\x00garbage, not a deflate stream")
+    """A part that is not UTF-8 text (garbage between its marks) raises UnicodeDecodeError: the loader must treat it as
+    missing, or every Chinese text raises and the load is retried on each of them."""
+    damaged = tmp_path / "zh_words"
+    damaged.mkdir()
+    (damaged / "01.txt").write_bytes(b"# part 1/1\n\xff\xfe\x1f\x8b garbage, not text\n# end 1/1\n")
     _clear_caches()
     monkeypatch.setattr(text, "_ZH_FILE", damaged)
     monkeypatch.setattr(text, "_ZH_TABLE", None)

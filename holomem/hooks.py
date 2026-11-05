@@ -46,10 +46,12 @@ def answer(event: str, text: str) -> str:
     return json.dumps({"hookSpecificOutput": {"hookEventName": EVENTS[event], "additionalContext": text}})
 
 
-def run(event: str, client: str, payload: dict, cfg: config.Config, budget: Budget | None = None) -> str:
+def run(event: str, client: str, payload: dict, cfg: config.Config, budget: Budget | None = None, *,
+        plugin: bool = False) -> str:
     """The hook's stdout for *payload* ("" for nothing), within *budget* (no deadline when None)."""
     budget = budget or Budget()
-    ctx = Context(client=client, session_id=str(payload.get("session_id") or ""), cwd=str(payload.get("cwd") or ""))
+    ctx = Context(client=client, session_id=str(payload.get("session_id") or ""), cwd=str(payload.get("cwd") or ""),
+                  plugin=plugin)
     if event == "session-start":
         from .session import block
 
@@ -118,7 +120,7 @@ def main(event: str, client: str, stdin: bytes, *, plugin: bool = False) -> int:
 
     def work() -> None:
         try:
-            result.append(run(event, client, payload, cfg, budget))
+            result.append(run(event, client, payload, cfg, budget, plugin=plugin))
         except Exception as exc:  # noqa: BLE001 - logged by kind; the prompt goes on without memory
             logger.warning("holomem: %s hook failed (%s)", event, type(exc).__name__)
 

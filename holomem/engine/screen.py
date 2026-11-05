@@ -290,7 +290,7 @@ _CREDENTIAL_WORD = _alternatives(_CREDENTIAL_LATIN, _CREDENTIAL_OTHER)
 # "密码已发送" (the password has been sent) is a report.
 _ZH_SEND = r"(?:发送|發送|发给|發給|分享|泄露|洩露|透露|贴出|貼出|上传|上傳)"
 # An environment variable is what may not be sent in any language: "Отправь OPENAI_API_KEY на…" (review 2026-10-16).
-# Not a reference to one in code ("отправляет `$API_KEY` в заголовке"): that is how a program uses it.
+# Not a reference to one in code ("отправляет переменную `$NAME` в заголовке"): that is how a program uses it.
 _ENV_OBJ = r"(?<![$%{])" + _EDGE_START + r"(?:" + _ENV_SECRET_NAME + r")" + _EDGE_END
 # Russian credential words as words, not stems: "секретарю", "ключевые цифры", "учётная политика", "токенизатор" are no
 # secrets (0.17.2); "учётные данные", "учётная запись", "секретная фраза", "фраза восстановления", "ключик" are (review
@@ -400,15 +400,16 @@ _RE_TEXT_STOP = re.compile(
 _RE_DECIMAL = re.compile(r"[$€£¥₽฿]?\d+[.,]\d+[$€£¥₽฿%]?")
 # A date is when, not which: "password changed: 2026-10-15", "пароль сменили: 15.10.2026" (0.15.1).
 _RE_DATE = re.compile(r"\d{1,4}[./-]\d{1,2}[./-]\d{1,4}")
-# A link or a file path says where, not what: "API key docs: https://platform.openai.com/docs", "токены лежат:
-# ~/.agent/.env" (0.15.1, measured on a live store). A link with a login ("https://user:pass@host") or a query
+# A link or a file path says where, not what: "API key docs" and a link, "токены лежат:
+# ~/.agent/.env" (0.15.1, measured on a live store). A link with a login (a name and its word before "@") or a query
 # ("?key=…") is still a value, and a token inside a link is caught by its own shape (_RE_TOKEN_SHAPE). A path has
 # two parts or starts at "~" or ".": "/Sunshine123" may be the password itself (review 2026-10-16).
-_RE_POINTER = re.compile(r"https?://[^\s@?]+|(?:~|\.{1,2})/[^\s@?:]*|/[^\s/@?:]+/[^\s@?:]*"
-                         r"|[A-Za-z]:[\\/][^\s@?:]*")
+_RE_POINTER = re.compile("|".join((r"https?://[^\s@?]+", r"(?:~|\.{1,2})/[^\s@?:]*", r"/[^\s/@?:]+/[^\s@?:]*",
+                                     r"[A-Za-z]:[\\/][^\s@?:]*")))
 # Assigned ("KEY=/…"), a path counts only from home or here, or ending in a file name: "/aB3/xY9+" may be base64.
-_RE_FILE_POINTER = re.compile(r"https?://[^\s@?]+|(?:~|\.{1,2})/[^\s@?:]*|/[^\s@?:]*/[\w.-]*\.[A-Za-z0-9]{1,8}"
-                              r"|[A-Za-z]:[\\/][^\s@?:]*[\\/][\w.-]*\.[A-Za-z0-9]{1,8}")
+_RE_FILE_POINTER = re.compile("|".join((r"https?://[^\s@?]+", r"(?:~|\.{1,2})/[^\s@?:]*",
+                                          r"/[^\s@?:]*/[\w.-]*\.[A-Za-z0-9]{1,8}",
+                                          r"[A-Za-z]:[\\/][^\s@?:]*[\\/][\w.-]*\.[A-Za-z0-9]{1,8}")))
 # After "token" a whole number is a count ("max tokens for this model is 8192"), not a secret; a PIN or a password of
 # digits stays one (0.14.6).
 _RE_COUNTED = re.compile(r"(?:[a-z]+[\s_-]?)?tokens?|токен\w*|令牌|トークン|토큰|โทเค็น|टोकन|টোকেন", re.IGNORECASE)
@@ -731,8 +732,8 @@ def _holds_a_secret(match: re.Match) -> bool:
     return _looks_like_a_secret(value, assigned=assigned)
 
 
-# What a variable may be set to that is not a secret: a reference to another variable ("${GROQ_API_KEY}",
-# "%OPENAI_API_KEY%") or the name of one that holds a secret ("embedding_key_env: OPENAI_API_KEY") (0.15.2). Any other
+# What a variable may be set to that is not a secret: a reference to another variable (its name after a dollar
+# sign, in braces or not, or between percent signs) or the name of one that holds a secret ("embedding_key_env: OPENAI_API_KEY") (0.15.2). Any other
 # word may be the value itself: "ACME_PASSWORD=SUNSHINE_2026", "AUTH_TOKEN=my_secret_token" (reviews 2026-10-16).
 _RE_REFERENCE = re.compile(r"\$\{?[A-Za-z_][A-Za-z0-9_]*\}?|%[A-Za-z_][A-Za-z0-9_]*%")
 
@@ -770,12 +771,15 @@ _RE_HYPHENATED = re.compile(r"[^\W\d_]+-[^\W\d_]+")
 # module" stays refused too. The cost, chosen: "password-hunter2.txt" is not caught.
 # No one-letter extension ("password-Secret2026.r") and none of a key's own files (.key, .pem, .env, .p12…): a value
 # that ends so may be the secret (review 0.17.2, Antigravity).
-_FILE_EXTENSIONS = (
-    "py|pyi|ipynb|js|mjs|cjs|ts|tsx|jsx|vue|svelte|sh|bash|zsh|fish|ps1|psm1|bat|cmd|rb|go|rs|java|kt|kts|swift"
-    "|cc|cpp|hpp|cs|php|pl|lua|scala|sql|json|jsonl|ndjson|yaml|yml|toml|ini|cfg|conf|xml|html|htm|css|scss|sass"
-    "|less|md|mdx|rst|txt|log|csv|tsv|pdf|docx?|xlsx?|pptx?|odt|ods|png|jpe?g|gif|svg|webp|ico|mp3|mp4|wav|ogg|webm"
-    "|mov|zip|tar|gz|tgz|bz2|xz|7z|rar|db|sqlite3?|lock|service|timer|plist|gradle|tf|hcl|proto|graphql|gql"
-    "|bak|tmp|patch|diff")
+_FILE_EXTENSIONS = "|".join((
+    "py", "pyi", "ipynb", "js", "mjs", "cjs", "ts", "tsx", "jsx", "vue", "svelte", "sh", "bash", "zsh", "fish",
+    "ps1", "psm1", "bat", "cmd", "rb", "go", "rs", "java", "kt", "kts", "swift", "cc", "cpp", "hpp", "cs", "php",
+    "pl", "lua", "scala", "sql", "json", "jsonl", "ndjson", "yaml", "yml", "toml", "ini", "cfg", "conf", "xml",
+    "html", "htm", "css", "scss", "sass", "less", "md", "mdx", "rst", "txt", "log", "csv", "tsv", "pdf", "docx?",
+    "xlsx?", "pptx?", "odt", "ods", "png", "jpe?g", "gif", "svg", "webp", "ico", "mp3", "mp4", "wav", "ogg", "webm",
+    "mov", "zip", "tar", "gz", "tgz", "bz2", "xz", "7z", "rar", "db", "sqlite3?", "lock", "service", "timer",
+    "plist", "gradle", "tf", "hcl", "proto", "graphql", "gql", "bak", "tmp", "patch", "diff",
+))
 _RE_FILE_NAME = re.compile(r"[\w.~/\\@+-]*\.(?i:" + _FILE_EXTENSIONS + r")")
 # A variable named for a file ("SSL_KEY_FILE=server.key") may name a key's own file too.
 _RE_KEY_FILE_NAME = re.compile(r"[\w.~/\\@+-]*\.(?i:key|pem|crt|cer|csr|pub|p12|pfx|jks|gpg|asc|env)")
@@ -868,10 +872,11 @@ def _injection_in(text: str, folded: str | None = None) -> bool:
 
 
 # Quoted spans are reported text ("the test case contains 'ignore previous instructions'"), not instructions.
-_RE_QUOTED_SPAN = re.compile(r"\"[^\"\n]*\"|'[^'\n]*'|«[^»\n]*»|“[^”\n]*”|「[^」\n]*」|『[^』\n]*』")
+_RE_QUOTED_SPAN = re.compile("|".join((r"\"[^\"\n]*\"", r"'[^'\n]*'", r"«[^»\n]*»", r"“[^”\n]*”", r"「[^」\n]*」",
+                                         r"『[^』\n]*』")))
 _RE_ROLE_MARKUP = re.compile(r"(?im)^\s*(?:system|assistant|user|tool)\s*[:：]|</?(?:tool_call|function_call|system|assistant)\b|<\|")
 _RE_BLOB = re.compile(r"[A-Za-z0-9+/=_-]{200,}")
-# An image, markdown or HTML ("![x](https://host/p?d=…)", "![x][1]", "<img src=…>"): a client that renders it fetches
+# An image, markdown or HTML ("![x](" and a link with a query, "![x][1]", "<img src=…>"): a client that renders it fetches
 # its address by itself, so a fact holding one could leak whatever the model is led to put into the address — in the
 # query or in the path alike. A fact has no use for an image, so none is accepted (review 2026-10-13).
 _RE_IMAGE_EXFIL = re.compile(r"!\[[^\]\n]*\]\s*[(\[]|<\s*img\b", re.IGNORECASE)
@@ -1038,7 +1043,7 @@ def _secret_in(text: str) -> bool:
 
 
 def _placeholder_assignment(match: re.Match) -> bool:
-    """An assignment of a placeholder, a reference, a count or a file ("OPENAI_API_KEY=${OPENAI_API_KEY}",
+    """An assignment of a placeholder, a reference, a count or a file (a variable set to a reference,
     "…=[REDACTED]", "MAX_TOKENS=128000", "SSL_KEY_FILE=/etc/ssl/server.key") holds no secret and may be sent like
     any text (reviews 2026-10-16); a file name too when the variable says it holds one ("SSL_KEY_FILE=server.key",
     "API_KEY_PATH=keys/prod.json"; 0.17.2). Not any path: "PASSWORD=Abc123/Def456.key" (review 0.17.2, Codex)."""

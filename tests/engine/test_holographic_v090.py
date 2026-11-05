@@ -108,11 +108,11 @@ def test_english_suffix_rules_remain_as_an_option(monkeypatch):
 
 
 def test_a_copy_without_the_dictionary_files_has_no_roots(monkeypatch):
-    def missing(path, *a, **k):
-        raise FileNotFoundError(path)
+    def missing(folder):
+        raise FileNotFoundError(folder)
 
     monkeypatch.setattr(text, "_PAIRS", {})
-    monkeypatch.setattr(text.gzip, "open", missing)
+    monkeypatch.setattr(text, "_read_table", missing)
     assert text._related("en", "teach") == frozenset()
     assert text._related("ru", "ноч") == frozenset()
 

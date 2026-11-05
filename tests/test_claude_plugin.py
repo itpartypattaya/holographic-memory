@@ -1,13 +1,17 @@
 """The Claude Code plugin stays in step with the package.
 
 Requirement: the plugin folder is the repository root, so a person who installs the plugin gets the engine with it: every
-hook and the MCP server run this folder's own package through `uv run --locked --project ${CLAUDE_PLUGIN_ROOT}`, never
-a program they had to install from elsewhere (the Claude plugin directory installs only the plugin folder). The
+hook and the MCP server run this folder's own package through `uv run --locked --project ${CLAUDE_PLUGIN_ROOT}` and the
+plugin's own script (scripts/holomem_plugin.py, a file the Claude plugin directory reads), never a program they had to install
+from elsewhere (the directory installs only the plugin folder). The
 marketplace points at that folder; the plugin's version is the package's; uv.lock holds the package's version and
 dependencies (with --locked, a lock left behind a release makes uv refuse to run, and every hook fails); every hook
 command and the MCP server's arguments are ones the holomem CLI accepts (a renamed subcommand or flag would make the
 plugin's hooks fail silently on every prompt) and say they run as the plugin (--plugin: test_plugin_beside_install.py);
-the server name has no "__" (Claude Code's permission rules split on it).
+the server name has no "__" (Claude Code's permission rules split on it). The embeddings key reaches the plugin only
+through its sensitive userConfig option, handed to the MCP server under the name the engine reads (memory.PLUGIN_KEY;
+hooks get it from Claude Code under that name). The manifest holds only keys Claude Code reads: the directory warned of
+its listing-only ones (icon, documentationUrl, supportUrl, privacyPolicyUrl), and a listing keeps what it imported.
 """
 from __future__ import annotations
 
@@ -24,7 +28,12 @@ from holomem.__main__ import main
 ROOT = Path(__file__).resolve().parent.parent
 PLUGIN = ROOT
 MANIFEST = PLUGIN / ".claude-plugin" / "plugin.json"
-LAUNCH = ["uv", "run", "--locked", "--quiet", "--project", "${CLAUDE_PLUGIN_ROOT}", "holomem"]
+LAUNCH = ["uv", "run", "--locked", "--quiet", "--project", "${CLAUDE_PLUGIN_ROOT}", "python",
+          "${CLAUDE_PLUGIN_ROOT}/scripts/holomem_plugin.py"]
+# the keys of plugin.json that Claude Code reads (plugins reference, "Fields")
+READ_KEYS = {"$schema", "name", "displayName", "version", "description", "author", "homepage", "repository", "license",
+             "keywords", "metadata", "defaultEnabled", "dependencies", "settings", "userConfig", "channels", "skills",
+             "commands", "agents", "hooks", "mcpServers", "lspServers", "outputStyles", "workflows", "experimental"}
 
 
 def _json(path: Path) -> dict:
@@ -89,3 +98,30 @@ def test_mcp_server_runs_the_plugins_own_package(monkeypatch):
     (name,) = servers
     assert "__" not in name
     _parses(_own_package([servers[name]["command"], *servers[name]["args"]]), monkeypatch)
+
+
+def test_the_script_runs_this_folders_package():
+    import subprocess
+    import sys
+
+    script = PLUGIN / "scripts" / "holomem_plugin.py"
+    done = subprocess.run([sys.executable, str(script), "hook", "--help"], capture_output=True, text=True,
+                          env={**__import__("os").environ, "PYTHONPATH": str(ROOT)}, timeout=60)
+    assert done.returncode == 0, done.stderr[-800:]
+    assert "user-prompt" in done.stdout and "--plugin" in done.stdout
+
+
+def test_the_embeddings_key_comes_only_from_the_plugins_option():
+    from holomem.memory import PLUGIN_KEY
+
+    manifest = _json(MANIFEST)
+    options = manifest["userConfig"]
+    assert options["embedding_api_key"]["sensitive"] is True
+    assert not options["embedding_api_key"].get("required")  # search by meaning is off until turned on
+    (server,) = manifest["mcpServers"].values()
+    assert server["env"] == {PLUGIN_KEY: "${user_config.embedding_api_key}"}
+    assert PLUGIN_KEY == "CLAUDE_PLUGIN_OPTION_" + "embedding_api_key".upper()  # the name hooks get it under
+
+
+def test_the_manifest_holds_only_keys_claude_code_reads():
+    assert set(_json(MANIFEST)) <= READ_KEYS

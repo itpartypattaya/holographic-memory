@@ -5,8 +5,6 @@ file are compared as before."""
 
 from __future__ import annotations
 
-import gzip
-
 import pytest
 
 pytest.importorskip("numpy")
@@ -166,8 +164,7 @@ def test_the_dictionary():
     assert len(table.words) > 300_000 and table.words["研究生"] < 0 and table.longest["南"] >= 4
     assert "王" in table.names and "猫" not in table.names
     assert "學" not in table.words and "学" in table.words  # folded to Simplified
-    with gzip.open(text._ZH_FILE, "rt", encoding="utf-8") as fh:
-        head = fh.read(400)
+    head = text._read_table(text._ZH_FILE)[:400]
     assert "jieba" in head and "MIT" in head
 
 

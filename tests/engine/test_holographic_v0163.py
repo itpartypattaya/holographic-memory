@@ -17,7 +17,7 @@ from test_holographic_v0140_embeddings import ON, FakeEndpoint
 
 
 def _embedder(**config) -> embeddings.Embedder:
-    return embeddings.Embedder(embeddings.Settings({**ON, **config}), environ={"TEST_EMBEDDINGS_KEY": "sk-test-key"})
+    return embeddings.Embedder(embeddings.Settings({**ON, **config}), values={"TEST_EMBEDDINGS_KEY": "sk-test-key"})
 
 
 # -- what still is a failure ------------------------------------------------------------------------------------------

@@ -30,7 +30,6 @@ Requirements (rescoring, with holomem's state across processes):
 from __future__ import annotations
 
 import json
-import os
 import re
 import select
 import socket
@@ -46,6 +45,7 @@ from pathlib import Path
 import pytest
 
 from _launch import LAUNCH as _LAUNCH
+from _launch import child_env
 from holomem.recall import HEADER
 from test_hooks import context, hook, prompt, seed
 from test_mcp_server import Client
@@ -222,7 +222,7 @@ def speeds(home: Path) -> list[float]:
 
 
 def holomem(home: Path, *args: str) -> subprocess.CompletedProcess:
-    env = {**os.environ, "HOLOMEM_HOME": str(home), "PYTHONIOENCODING": "utf-8"}
+    env = child_env(HOLOMEM_HOME=str(home), PYTHONIOENCODING="utf-8")
     return subprocess.run([sys.executable, "-I", "-c", _LAUNCH, str(ROOT), *args], capture_output=True, env=env,
                           timeout=60)
 

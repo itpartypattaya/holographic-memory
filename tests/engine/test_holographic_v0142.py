@@ -25,9 +25,8 @@ ON = {"embeddings": "on", "embedding_url": "https://embeddings.example.net/v1", 
 @pytest.mark.parametrize("dimensions, hinted", [(1024, True), (None, False)])
 def test_a_400_to_dimensions_names_the_setting(monkeypatch, dimensions, hinted):
     monkeypatch.setattr(embeddings, "_OPENER", _Refuses400())
-    monkeypatch.setenv("TEST_EMBEDDINGS_KEY", "sk-test-not-a-real-key")
     config = {**ON, **({"embedding_dimensions": dimensions} if dimensions else {})}
-    e = embeddings.Embedder(embeddings.Settings(config))
+    e = embeddings.Embedder(embeddings.Settings(config), values={"TEST_EMBEDDINGS_KEY": "sk-test-not-a-real-key"})
     assert e.embed(["a"]) is None
     status = e.status()
     assert status.startswith("paused after an error (HTTP 400")

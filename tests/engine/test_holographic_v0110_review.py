@@ -3,7 +3,6 @@ and what must (not) come back."""
 
 from __future__ import annotations
 
-import gzip
 
 import pytest
 
@@ -143,18 +142,19 @@ def test_turkish_greetings_recall_nothing(store, query):
 # -- a damaged data file is a missing one --------------------------------------------------------------------------
 
 def test_a_truncated_dictionary_gives_no_roots(monkeypatch):
-    def truncated(path, *a, **k):
-        raise EOFError("Compressed file ended before the end-of-stream marker was reached")
+    def truncated(folder):
+        raise ValueError(f"{folder.name}/02.tsv is not part 2 of 2 whole")
 
     monkeypatch.setattr(text, "_PAIRS", {})
-    monkeypatch.setattr(text.gzip, "open", truncated)
+    monkeypatch.setattr(text, "_read_table", truncated)
     assert text._related("en", "teach") == frozenset()
 
 
 def test_a_truncated_japanese_table_gives_no_variants(monkeypatch, tmp_path):
-    damaged = tmp_path / "ja_variants.tsv.gz"
-    whole = gzip.compress("".join(f"子ども{i}\t子供{i}\n" for i in range(2000)).encode("utf-8"))
-    damaged.write_bytes(whole[:len(whole) // 2])
+    damaged = tmp_path / "ja_variants"
+    damaged.mkdir()
+    whole = ("# part 1/1\n" + "".join(f"子ども{i}\t子供{i}\n" for i in range(2000)) + "# end 1/1\n").encode("utf-8")
+    (damaged / "01.tsv").write_bytes(whole[:len(whole) // 2])
     monkeypatch.setattr(text, "_JA_FILE", damaged)
     monkeypatch.setattr(text, "_JA_TABLE", None)
     assert text._ja_table() == ({}, {})
@@ -197,8 +197,9 @@ def test_a_host_name_stays_required_in_a_tie_with_dutch(store):
 
 
 def test_a_malformed_compound_row_is_a_damaged_file(monkeypatch, tmp_path):
-    damaged = tmp_path / "de_compounds.tsv.gz"
-    damaged.write_bytes(gzip.compress(b"haus\tN\n"))
+    damaged = tmp_path / "de_compounds"
+    damaged.mkdir()
+    (damaged / "01.tsv").write_bytes(b"# part 1/1\nhaus\tN\n# end 1/1\n")
     monkeypatch.setattr(text, "_DE_FILE", damaged)
     monkeypatch.setattr(text, "_DE_TABLE", [])
     text.de_parts.cache_clear()

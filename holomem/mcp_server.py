@@ -56,7 +56,7 @@ class Server:
     def __init__(self, client: str, cwd: str | None = None, *, plugin: bool = False):
         self.cfg = config.load()
         self.ctx = Context(client=client, session_id=f"mcp-{os.getpid()}",
-                           cwd=cwd or os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd())
+                           cwd=cwd or os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd(), plugin=plugin)
         # the plugin beside `holomem install claude-code`: one set of tools, the install's (decided once, at start)
         self.idle = plugin and install.installed_for_claude(self.ctx.cwd)
         self.tools: Tools | None = None
@@ -197,7 +197,7 @@ class Server:
                 if is_greeting(prompt) or self._tools() is None:
                     return ""
             ctx = Context(client=self.ctx.client, session_id=str(args.get("session_id") or ""),
-                          cwd=str(args.get("cwd") or self.ctx.cwd))
+                          cwd=str(args.get("cwd") or self.ctx.cwd), plugin=self.ctx.plugin)
             with self.lock:
                 return answer("user-prompt", recall(self.memory, self.state, ctx, prompt, budget))
         except Exception as exc:  # noqa: BLE001 - logged by kind; the prompt goes on without memory

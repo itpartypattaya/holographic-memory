@@ -17,3 +17,12 @@ LAUNCH = (
     "from holomem.__main__ import main\n"
     "sys.exit(main())\n"
 )
+
+
+def child_env(*, drop: tuple[str, ...] = (), **values: str) -> dict[str, str]:
+    """The environment of a holomem process a test starts: this one's, without *drop*, with *values* set."""
+    import os
+
+    env = {k: v for k, v in os.environ.items() if k not in drop}
+    env.update(values)
+    return env

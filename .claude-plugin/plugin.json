@@ -1,20 +1,25 @@
 {
   "name": "holographic-memory",
-  "version": "0.10.1",
+  "version": "0.11.0",
   "description": "Long-term local memory for Claude Code: a SQLite fact store with trust scoring and holographic recall, recalled before each turn, with memory tools over MCP. Runs from the plugin folder through uv; Claude Code only.",
   "author": {"name": "itpartypattaya"},
   "homepage": "https://github.com/itpartypattaya/holographic-memory",
   "repository": "https://github.com/itpartypattaya/holographic-memory",
   "license": "MIT",
   "keywords": ["memory", "sqlite", "fts5", "recall", "mcp"],
-  "icon": ".claude-plugin/icon.jpg",
-  "documentationUrl": "https://github.com/itpartypattaya/holographic-memory#readme",
-  "supportUrl": "https://github.com/itpartypattaya/holographic-memory/issues",
-  "privacyPolicyUrl": "https://github.com/itpartypattaya/holographic-memory/blob/main/PRIVACY.md",
+  "userConfig": {
+    "embedding_api_key": {
+      "type": "string",
+      "title": "Embeddings API key (optional)",
+      "description": "Only for search by meaning, which is off until you turn it on in config.toml: the key of the embeddings API named there (embedding_url). Leave it empty otherwise. Kept in your system's secure storage; the plugin reads no key from your environment or files.",
+      "sensitive": true
+    }
+  },
   "mcpServers": {
     "holographic": {
       "command": "uv",
-      "args": ["run", "--locked", "--quiet", "--project", "${CLAUDE_PLUGIN_ROOT}", "holomem", "mcp", "--client", "claude-code", "--plugin"]
+      "args": ["run", "--locked", "--quiet", "--project", "${CLAUDE_PLUGIN_ROOT}", "python", "${CLAUDE_PLUGIN_ROOT}/scripts/holomem_plugin.py", "mcp", "--client", "claude-code", "--plugin"],
+      "env": {"CLAUDE_PLUGIN_OPTION_EMBEDDING_API_KEY": "${user_config.embedding_api_key}"}
     }
   }
 }

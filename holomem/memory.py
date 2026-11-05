@@ -29,6 +29,7 @@ class Context:
     client: str = ""
     session_id: str = ""
     cwd: str = ""
+    plugin: bool = False  # run as the Claude Code plugin: the embeddings key comes from its option only (environ)
 
     @property
     def project(self) -> str:
@@ -100,15 +101,26 @@ class LocalTime(datetime.tzinfo):
         return time.strftime("%z", time.localtime())
 
 
-def environ(cfg: Config):
-    """Where the embeddings key is looked up: $HOLOMEM_HOME/.env first, then the environment."""
+# The Claude Code plugin's option embedding_api_key (userConfig, sensitive: kept in the system's secure storage), as
+# Claude Code hands it to the hooks and, through the server's "env" in plugin.json, to the MCP server.
+PLUGIN_KEY = "CLAUDE_PLUGIN_OPTION_EMBEDDING_API_KEY"
+
+
+def environ(cfg: Config, *, plugin: bool = False):
+    """Where the embeddings key is looked up: $HOLOMEM_HOME/.env first, then the environment. As the plugin, only its
+    own option (PLUGIN_KEY): the Claude plugin directory holds a plugin that reads a key from the person's environment
+    or files and sends it to a server (2026-11-05). An option left empty, or a reference Claude Code left as written
+    ("${user_config.embedding_api_key}"), is no key."""
+    if plugin:
+        value = os.environ.get(PLUGIN_KEY, "").strip()
+        return {PLUGIN_KEY: "" if value.startswith("${") else value}
     return ChainMap(secrets(cfg.secrets_path), os.environ)
 
 
 class Memory:
     """The engine's MemoryStore and FactRetriever for one database, and the Embedder when search by meaning is on."""
 
-    def __init__(self, cfg: Config, db_path: Path):
+    def __init__(self, cfg: Config, db_path: Path, *, plugin: bool = False):
         from .engine import embeddings
         from .engine.retrieval import FactRetriever  # numpy and the dictionaries: only once a store is needed
         from .engine.store import MemoryStore
@@ -121,7 +133,9 @@ class Memory:
         self.retriever = FactRetriever(self.store, temporal_decay_half_life=cfg.temporal_decay_half_life,
                                        hrr_weight=cfg.hrr_weight, hrr_dim=cfg.hrr_dim)
         self.embedding = embeddings.settings_from(cfg.embedding_config())
-        self.embedder = embeddings.Embedder(self.embedding, environ=environ(cfg)) if self.embedding else None
+        if self.embedding and plugin:
+            self.embedding.key_env = PLUGIN_KEY  # where the key is, also in what the endpoint says is missing
+        self.embedder = embeddings.Embedder(self.embedding, values=environ(cfg, plugin=plugin)) if self.embedding             else None
         if cfg.rerank:
             from .rescore import Rescoring
 
@@ -220,7 +234,7 @@ def open_memory(cfg: Config, ctx: Context) -> Memory | None:
     path = cfg.database_for(ctx.cwd or None)
     if path is None:
         return None
-    return Memory(cfg, path)
+    return Memory(cfg, path, plugin=ctx.plugin)
 
 
 def revision(fact: dict) -> tuple[int, str]:
