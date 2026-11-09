@@ -1,6 +1,6 @@
 {
   "name": "holographic-memory",
-  "version": "0.11.0",
+  "version": "0.11.1",
   "description": "Long-term local memory for Claude Code: a SQLite fact store with trust scoring and holographic recall, recalled before each turn, with memory tools over MCP. Runs from the plugin folder through uv; Claude Code only.",
   "author": {"name": "itpartypattaya"},
   "homepage": "https://github.com/itpartypattaya/holographic-memory",
