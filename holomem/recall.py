@@ -62,6 +62,12 @@ _TRIVIAL = re.compile(
     r'[\s!?.:;,"' + "'" + r'~‘’“”—–…()\[\]{}<>*&^%$#@!+=` ]*$',
     re.IGNORECASE,
 )
+# What Claude Code puts on the person's side of the chat without the person writing it (seen in transcripts,
+# 2026-11-15): a closed block of one of these tags, or a whole message another session or a subagent sent. Their words
+# ("session", "Claude", a project's name in a path) pulled the same facts into unrelated sessions.
+_CLIENT_BLOCK = re.compile(
+    r"<(task-notification|system-reminder|ci-monitor-event|side-sessions-event)\b[^>]*>.*?</\1\s*>", re.DOTALL)
+_PEER_MESSAGE = "Another Claude session sent a message:"
 
 
 class Budget:
@@ -97,6 +103,14 @@ def trivial(prompt: str | None) -> bool:
     """Empty, a slash command, or a bare acknowledgement: nothing to recall (checked before the engine loads)."""
     text = (prompt or "").strip()
     return not text or text.startswith("/") or bool(_TRIVIAL.match(text))
+
+
+def own_words(prompt: str) -> str:
+    """The person's words in a prompt: the client's closed blocks taken out; "" for a message from another session
+    or a subagent. An unclosed tag stays: it is the person's text (a question about the tag)."""
+    if prompt.lstrip().startswith(_PEER_MESSAGE):
+        return ""
+    return _CLIENT_BLOCK.sub(" ", prompt).strip()
 
 
 def one_line(text: str, limit: int = _LINE_CHARS) -> str:
