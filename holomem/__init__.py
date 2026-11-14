@@ -2,7 +2,7 @@
 
 import os
 
-__version__ = "0.11.1"
+__version__ = "0.11.2"
 
 # numpy's OpenBLAS commits ~32 MB per CPU thread when numpy is imported: ~225 MB of the ~260 MB an MCP server held on an
 # 8-thread laptop, in every session. holomem's math (a matrix-vector product over the facts, FFTs) needs no more than one

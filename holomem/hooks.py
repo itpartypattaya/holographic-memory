@@ -22,7 +22,7 @@ import time
 
 from . import config
 from .memory import Context, open_memory
-from .recall import Budget, recall, trivial
+from .recall import Budget, own_words, recall, trivial
 
 logger = logging.getLogger("holomem")
 EVENTS = {"user-prompt": "UserPromptSubmit", "session-start": "SessionStart"}
@@ -64,7 +64,10 @@ def run(event: str, client: str, payload: dict, cfg: config.Config, budget: Budg
             if memory:
                 memory.close()
     prompt = payload.get("prompt")
-    if not isinstance(prompt, str) or trivial(prompt) or cfg.problems:
+    if not isinstance(prompt, str):
+        return ""
+    prompt = own_words(prompt)  # a task's notification or another session's report is not the person's: no recall
+    if trivial(prompt) or cfg.problems:
         return ""
     from .engine.text import is_greeting  # multi-word courtesies in the engine's languages; no numpy, no store
 
