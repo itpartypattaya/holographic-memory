@@ -641,6 +641,66 @@ def test_the_receipt_cap_applies_and_a_store_without_a_journal_gets_none(store, 
         fresh.close()
 
 
+def _receipts_at_live_rate(store, count, newest_age, per_day=160):
+    """Outcome-less receipts spaced as the live journal grew (15.11.2026: about 160 a day), newest first."""
+    now = time.time()
+    store._conn.executemany("INSERT INTO memory_attempts VALUES (?,?,?,?,?,?,?)",
+                            [(f"later-{i}", now - newest_age - i * 86400 / per_day, "prompt", KEY, "[]", "[]",
+                              "not_recorded") for i in range(count)])
+
+
+def test_a_reported_outcome_outlives_the_receipt_cap_until_its_30_days(store):
+    """An outcome is the only signal dreaming reads from the journal, and it needs two or three weeks of them. At the
+    live rate the cap of MAX_ATTEMPTS receipts is reached in about six days: the cap takes outcome-less receipts first,
+    so a week-old outcome stays; the journal stays at MAX_ATTEMPTS rows."""
+    fid, aid = _seed(store)
+    marker = "teal lantern week-old correction"
+    assert store.record_outcome(aid, "event-week", "corrected", "other", correction=marker,
+                                session_key=KEY)["recorded"] is True
+    store._conn.execute("UPDATE memory_attempts SET created_at=? WHERE attempt_id=?", (time.time() - 7 * 86400, aid))
+    _receipts_at_live_rate(store, journal_engine.MAX_ATTEMPTS, newest_age=60)
+    assert store.prune_experiences() == 1
+    kept = set(_attempts(store))
+    assert len(kept) == journal_engine.MAX_ATTEMPTS
+    assert aid in kept and f"later-{journal_engine.MAX_ATTEMPTS - 1}" not in kept  # the oldest without an outcome went
+    assert [r["event_id"] for r in store.read("SELECT event_id FROM memory_outcomes")] == ["event-week"]
+    assert store.experience_report(aid, session_key=KEY)["outcomes"][0]["correction"] == marker
+
+
+def test_the_cap_still_bounds_a_journal_where_every_receipt_has_an_outcome(store):
+    """Keeping outcomes first does not make the journal unbounded: past MAX_ATTEMPTS receipts that all carry an
+    outcome, the oldest of them goes with its outcome, and its text leaves the file as after a forget."""
+    fid, oldest = _seed(store)
+    marker = "umber kite oldest correction"
+    store.record_outcome(oldest, "event-oldest", "corrected", "other", correction=marker, session_key=KEY)
+    store._conn.execute("UPDATE memory_attempts SET created_at=? WHERE attempt_id=?", (time.time() - 7 * 86400, oldest))
+    _receipts_at_live_rate(store, journal_engine.MAX_ATTEMPTS, newest_age=60)
+    store._conn.executemany("INSERT INTO memory_outcomes VALUES (?,?,?,?,?,?)",
+                            [(f"ev-{i}", f"later-{i}", time.time(), f"sig-{i}", None,
+                              json.dumps({"event_id": f"ev-{i}", "outcome": "useful", "reason": "other"}))
+                             for i in range(journal_engine.MAX_ATTEMPTS)])
+    assert store.prune_experiences() == 1
+    kept = set(_attempts(store))
+    assert len(kept) == journal_engine.MAX_ATTEMPTS and oldest not in kept
+    assert store.read("SELECT 1 FROM memory_outcomes WHERE event_id='event-oldest'") == []
+    assert marker.encode() not in _on_disk(store.db_path)
+
+
+def test_a_journal_full_of_outcomes_still_takes_a_new_outcome(store):
+    """Codex review 16.11.2026: with every kept receipt carrying an outcome, the newest receipt was the only one
+    without and the cap removed it at once, so the agent's outcome for it came back unavailable until old ones expired.
+    Protected outcomes take at most half the cap; the rest is kept by age, so the receipt just written stays."""
+    fid, _ = _seed(store)
+    _receipts_at_live_rate(store, journal_engine.MAX_ATTEMPTS, newest_age=60)
+    store._conn.executemany("INSERT INTO memory_outcomes VALUES (?,?,?,?,?,?)",
+                            [(f"ev-{i}", f"later-{i}", time.time(), f"sig-{i}", None,
+                              json.dumps({"event_id": f"ev-{i}", "outcome": "useful", "reason": "other"}))
+                             for i in range(journal_engine.MAX_ATTEMPTS)])
+    aid = store.record_attempt("search", [_fact(store, fid)], [], KEY)
+    assert aid in _attempts(store) and len(_attempts(store)) == journal_engine.MAX_ATTEMPTS
+    assert store.record_outcome(aid, "event-new", "corrected", "other", session_key=KEY)["recorded"] is True
+
+
 # -- holomem's layer: the tools, recall, the session block, the server's open ---------------------------------------
 
 EXP = "experience = true\n"
