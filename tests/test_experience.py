@@ -430,6 +430,38 @@ def test_a_hook_never_rewrites_the_file_for_journal_retention(home):
     assert "Memory attempt" in context(hook(home, "user-prompt", prompt(ASK, session="after")))  # receipts again
 
 
+def test_a_kept_outcome_past_the_receipt_cap_does_not_stop_receipts_before_a_turn(home):
+    """16.11.2026: retention keeps the newest outcomes past the cap of receipts, so such an outcome is not owed. The
+    hook's check before a turn must see it the same way: when it predicted retention by age alone, every prompt found
+    retention owed, nothing could pay it, and receipts before a turn stopped until the outcome's 30 days ran out."""
+    from holomem.engine.experience import MAX_ATTEMPTS
+
+    seed(home, [(DEPLOY, [])], EXP)
+    attempt = attempt_of(context(hook(home, "user-prompt", prompt(ASK))))
+    client = Client(home).start()
+    try:
+        assert outcome(client, attempt, correction=CORRECTION)[0]["recorded"] is True
+    finally:
+        client.close()
+    db = home / "memory_store.db"
+    (key,) = rows(db, "SELECT session_key FROM memory_attempts WHERE attempt_id = ?", (attempt,))[0]
+    write(db, "UPDATE memory_attempts SET created_at = created_at - ?", (7 * DAY,))
+    now = time.time()
+    conn = sqlite3.connect(db)
+    try:
+        with conn:  # receipts at the live rate (about 160 a day), all newer than the outcome
+            conn.executemany("INSERT INTO memory_attempts VALUES (?,?,?,?,?,?,?)",
+                             [(f"later-{i}", now - 60 - i * DAY / 160, "prefetch", key, "[]", "[]", "not_recorded")
+                              for i in range(MAX_ATTEMPTS)])
+    finally:
+        conn.close()
+    assert holomem(home, "status").returncode == 0  # what a writer's open does: retention, the outcome stays
+    assert rows(db, "SELECT 1 FROM memory_outcomes")
+    text = context(hook(home, "user-prompt", prompt(ASK, session="later")))
+    assert "Memory attempt" in text  # the receipt before the turn was recorded
+    assert rows(db, "SELECT 1 FROM memory_outcomes")
+
+
 def test_a_recall_through_the_server_leaves_a_pending_rewrite_to_a_tool_call(home):
     """memory_recall answers a prompt (a hook of type mcp_tool): a rewrite a blocked forget left is not done there,
     but by the next memory tool call."""

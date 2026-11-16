@@ -13,6 +13,13 @@ from .history import source_of
 TTL = 30 * 86400
 MAX_ATTEMPTS = 1000
 KEPT_OUTCOMES = MAX_ATTEMPTS // 2  # receipts with an outcome the cap never takes before their TTL
+# The receipts past the newest ? (params: KEPT_OUTCOMES, how many stay). The newest KEPT_OUTCOMES receipts with an
+# outcome rank first, the rest by age: an outcome is the journal's only signal and dreaming needs weeks of them, while
+# the cap fills in days (16.11.2026). Half the cap is left to age, so a receipt just written survives even in a journal
+# full of outcomes (Codex review). Retention and the hook's check before a turn (holomem.journal) read this one rule.
+BEYOND_CAP = ("SELECT attempt_id FROM memory_attempts ORDER BY attempt_id IN (SELECT a.attempt_id FROM memory_attempts "
+              "a WHERE EXISTS (SELECT 1 FROM memory_outcomes o WHERE o.attempt_id = a.attempt_id) ORDER BY a.created_at "
+              "DESC, a.rowid DESC LIMIT ?) DESC, created_at DESC, rowid DESC LIMIT -1 OFFSET ?")
 MAX_REVISIONS = 10
 MAX_REFS = 100
 # The journal is optional: don't hold the answer behind another process's writer.
@@ -91,14 +98,7 @@ class ExperienceMixin:
     def _prune_experiences(self):
         outcomes = self._one("SELECT count(*) AS n FROM memory_outcomes")["n"]
         self._conn.execute("DELETE FROM memory_attempts WHERE created_at <= ?", (time.time() - TTL,))
-        # Past the cap, the newest KEPT_OUTCOMES receipts with an outcome stay and the rest is kept by age: an outcome
-        # is the journal's only signal and dreaming needs weeks of them, while the cap fills in days (16.11.2026). Half
-        # the cap is left to age, so a receipt just written survives even in a journal full of outcomes (Codex review).
-        self._conn.execute(
-            "DELETE FROM memory_attempts WHERE attempt_id IN (SELECT attempt_id FROM memory_attempts ORDER BY "
-            "attempt_id IN (SELECT a.attempt_id FROM memory_attempts a WHERE EXISTS (SELECT 1 FROM memory_outcomes o "
-            "WHERE o.attempt_id = a.attempt_id) ORDER BY a.created_at DESC, a.rowid DESC LIMIT ?) DESC, "
-            "created_at DESC, rowid DESC LIMIT -1 OFFSET ?)", (KEPT_OUTCOMES, MAX_ATTEMPTS))
+        self._conn.execute(f"DELETE FROM memory_attempts WHERE attempt_id IN ({BEYOND_CAP})", (KEPT_OUTCOMES, MAX_ATTEMPTS))
         if self._one("SELECT count(*) AS n FROM memory_outcomes")["n"] < outcomes:
             self._mark_scrub()  # an outcome's free text went: the file is rewritten as after a forget
 
