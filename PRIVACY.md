@@ -12,7 +12,8 @@ crash reports.
 - **Bookkeeping** of the hooks in `~/.holographic/state.db`: session ids, turn numbers, which fact was shown in which
   turn, kept 14 days. Not the text of your messages.
 - **The task-outcome journal**, only with `experience = true`: which facts a recall offered and the outcome the agent
-  reported, kept 30 days (at most 1000 attempts).
+  reported, kept 30 days (at most 1000 attempts; past that cap the newest 500 attempts with an outcome stay their 30 days and
+  the rest are removed oldest first).
 - **Facts kept automatically** from your messages, only with `auto_extract = true` (off by default): sentences that
   state a preference or a decision.
 - **A log**, `~/.holographic/holomem.log`: failures by their kind only, never a fact or a message.

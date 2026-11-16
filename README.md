@@ -299,7 +299,8 @@ holomem export --journal                 # the last 30 days of attempts and outc
 holomem export --journal --days 7 --out week.md
 ```
 
-Receipts and outcomes are kept 30 days (at most 1000 attempts) and go with a fact you forget, text included. Removing
+Receipts and outcomes are kept 30 days (at most 1000 attempts; past that cap the newest 500 attempts with an outcome
+stay their 30 days and the rest go oldest first) and go with a fact you forget, text included. Removing
 an outcome's text owes a rewrite of the whole file (so no copy stays on disk), and a rewrite has no time limit on a
 large store or a slow disk, so journal work never does it while a prompt waits. Retention — also with the journal
 turned off — runs when the MCP server opens the store (the first memory tool call of a session), at `holomem status`

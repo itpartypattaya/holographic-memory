@@ -43,11 +43,10 @@ RECEIPT_MIN_LEFT = 0.3  # seconds of a hook's deadline a receipt and its link ma
 # experience._scrub_after_receipt skips the rewrite while this holds a time under _SCRUB_RETRY_S ago (its own
 # "deferred" mark); set around a receipt before a turn, restored after
 _RECEIPT_REWRITE_WAIT = "receipt_scrub_failed"
-# an outcome a receipt's own retention would remove: past the 30 days, or beyond the newest MAX_ATTEMPTS - 1 (the new
-# receipt makes one more)
+# an outcome a receipt's own retention would remove: past the 30 days, or past the cap by the engine's own rule
+# (BEYOND_CAP) with MAX_ATTEMPTS - 1 kept (the new receipt makes one more)
 _OUTCOME_DUE = ("SELECT 1 FROM memory_outcomes WHERE attempt_id IN (SELECT attempt_id FROM memory_attempts WHERE "
-                "created_at <= ? UNION SELECT attempt_id FROM (SELECT attempt_id FROM memory_attempts ORDER BY "
-                "created_at DESC, rowid DESC LIMIT -1 OFFSET ?)) LIMIT 1")
+                "created_at <= ? UNION SELECT attempt_id FROM ({beyond_cap})) LIMIT 1")
 _STAGES, _STAGE_FACTS = 16, 101  # the stage bounds (the engine keeps 100 of each)
 
 
@@ -75,9 +74,10 @@ class Trace:
 
 def _outcome_due(store) -> bool:
     """Would a receipt now remove an outcome's text (and so owe a rewrite of the file)?"""
-    from .engine.experience import MAX_ATTEMPTS, TTL
+    from .engine.experience import BEYOND_CAP, KEPT_OUTCOMES, MAX_ATTEMPTS, TTL
 
-    return store.experience_ready() and bool(store.read(_OUTCOME_DUE, (time.time() - TTL, MAX_ATTEMPTS - 1)))
+    return store.experience_ready() and bool(store.read(_OUTCOME_DUE.format(beyond_cap=BEYOND_CAP),
+                                                        (time.time() - TTL, KEPT_OUTCOMES, MAX_ATTEMPTS - 1)))
 
 
 def record(memory, state, ctx, kind: str, facts: list[dict], trace: Trace, budget=None) -> str | None:
