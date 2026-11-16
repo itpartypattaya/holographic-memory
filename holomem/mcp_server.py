@@ -25,9 +25,9 @@ import sys
 import threading
 
 from . import __version__, config, install
-from .hooks import answer
+from .hooks import EXTRACT_MIN_LEFT, answer
 from .memory import Context, open_memory
-from .recall import Budget, recall, trivial
+from .recall import Budget, own_words, recall, trivial
 from .tools import NAMES, READ_ONLY, Tools, dumps, listed
 
 # For a UserPromptSubmit hook of type mcp_tool (Claude Code: input {"prompt": "${prompt}", "session_id":
@@ -188,7 +188,10 @@ class Server:
         and recall as ``holomem hook user-prompt``, without starting Python, numpy and the store for each prompt."""
         budget = Budget.seconds(self.cfg.hook_deadline_seconds)
         prompt = args.get("prompt")
-        if not isinstance(prompt, str) or trivial(prompt) or self.cfg.problems:
+        if not isinstance(prompt, str):
+            return ""
+        prompt = own_words(prompt)  # a task's notification or another session's report is not the person's
+        if trivial(prompt) or self.cfg.problems:
             return ""
         try:
             from .engine.text import is_greeting
@@ -199,7 +202,15 @@ class Server:
             ctx = Context(client=self.ctx.client, session_id=str(args.get("session_id") or ""),
                           cwd=str(args.get("cwd") or self.ctx.cwd), plugin=self.ctx.plugin)
             with self.lock:
-                return answer("user-prompt", recall(self.memory, self.state, ctx, prompt, budget))
+                text = recall(self.memory, self.state, ctx, prompt, budget)
+                # after recall: a sentence stored now is not handed back in the same turn
+                if self.cfg.auto_extract and budget.left() >= EXTRACT_MIN_LEFT:
+                    from .extract import extract
+
+                    budget.step("extract")
+                    if extract(self.memory, ctx, prompt):
+                        self._wake.set()  # the new facts want their vectors
+            return answer("user-prompt", text)
         except Exception as exc:  # noqa: BLE001 - logged by kind; the prompt goes on without memory
             logger.warning("holomem: memory_recall failed (%s)", type(exc).__name__)
             return ""

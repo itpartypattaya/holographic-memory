@@ -9,6 +9,7 @@ Requirements:
   answered with possible_conflicts; a name that cannot be an entity is reported by position, never quoted;
 - change keeps the old text as history; forget deletes the fact (search no longer finds it) and its trace in
   state.db; feedback moves trust; confirmed records a confirmation;
+- memory_recall (the mcp_tool hook) answers as the command hook does, auto_extract included;
 - a line that is not JSON gets a parse error and the server keeps serving; an unknown method or tool is an error;
 - broken settings answer every call with the key that is wrong, not its value;
 - two servers (two sessions) writing at once lose nothing and leave the database intact.
@@ -239,6 +240,26 @@ def test_memory_recall_answers_as_the_hook_does(mcp):
     assert _recall(mcp, "How does the billing service deploy?") == ""          # within the repeat window
     assert "billing" in _recall(mcp, "How does the billing service deploy?", "s2")
     assert _recall(mcp, "ok thanks") == "" and _recall(mcp, "${prompt}") == ""
+
+
+def test_memory_recall_keeps_a_stated_preference_with_auto_extract(home):
+    """auto_extract stores the person's stated preference from each prompt, through memory_recall as through the
+    command hook; a service message stores nothing."""
+    home.mkdir(parents=True)
+    (home / "config.toml").write_text("auto_extract = true\n", encoding="utf-8")
+    client = Client(home).start()
+    try:
+        _recall(client, "I prefer tabs over spaces in Python code. Can you reformat the file?")
+        _recall(client, "<task-notification>\n<summary>I prefer dark mode in every editor.</summary>\n"
+                        "</task-notification>")
+    finally:
+        client.close()
+    conn = sqlite3.connect(home / "memory_store.db")
+    try:
+        facts = [row[0] for row in conn.execute("SELECT content FROM facts")]
+    finally:
+        conn.close()
+    assert facts == ["I prefer tabs over spaces in Python code."]
 
 
 def test_memory_recall_with_broken_settings_is_silent(home):

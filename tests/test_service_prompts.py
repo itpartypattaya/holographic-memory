@@ -10,6 +10,7 @@ in 104 of 204 sessions. So:
 - a block the client wraps around the person's words (a system reminder before the first message of a session) is not
   part of the query: the person's own words are searched, and only they;
 - the person's message that merely contains a closed service block (pasted from a log) still recalls by its own words.
+- the same holds for memory_recall, the MCP server's answer to a prompt hook of type mcp_tool (--recall mcp).
 """
 from __future__ import annotations
 
@@ -103,3 +104,35 @@ def test_a_person_mentioning_a_tag_by_name_still_recalls(home):
     (fid,) = seed(home, [FACT])
     text = "Why does <task-notification> show up when I ask whether to invite Masha to the meeting on Friday?"
     assert f"#{fid}" in context(hook(home, "user-prompt", prompt(text)))
+
+
+# The same gates in the warm MCP server: `holomem install claude-code --recall mcp` makes the prompt hook a call to
+# memory_recall, which must answer as `holomem hook user-prompt` does.
+
+@pytest.fixture
+def served(home):
+    from test_mcp_server import Client
+
+    seed(home, [FACT, OTHER])
+    client = Client(home).start()
+    yield client
+    client.close()
+
+
+def _served_recall(client, text: str) -> str:
+    from test_mcp_server import _recall
+
+    return _recall(client, text)
+
+
+@pytest.mark.parametrize("text", [NOTIFICATION, SUBAGENT, PEER, CI, SIDE, REMINDER, REMINDER + "\n" + NOTIFICATION],
+                         ids=["notification", "subagent", "peer", "ci", "side-sessions", "reminder", "two-blocks"])
+def test_memory_recall_of_a_message_the_person_did_not_write_is_empty(served, text):
+    assert _served_recall(served, text) == ""
+
+
+def test_memory_recall_searches_the_persons_words_not_the_reminder(served):
+    assert _served_recall(served, REMINDER + "What is the weather on Mars tomorrow?") == ""
+    reminder = "<system-reminder>\nBob may join later.\n</system-reminder>\n"
+    text = _served_recall(served, reminder + ASK)
+    assert "Masha prefers green tea" in text and "bakery" not in text
