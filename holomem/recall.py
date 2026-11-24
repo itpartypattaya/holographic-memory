@@ -107,10 +107,10 @@ def trivial(prompt: str | None) -> bool:
 
 def own_words(prompt: str) -> str:
     """The person's words in a prompt: the client's closed blocks taken out; "" for a message from another session
-    or a subagent. An unclosed tag stays: it is the person's text (a question about the tag)."""
-    if prompt.lstrip().startswith(_PEER_MESSAGE):
-        return ""
-    return _CLIENT_BLOCK.sub(" ", prompt).strip()
+    or a subagent, also behind a system reminder. An unclosed tag stays: it is the person's text (a question about the
+    tag)."""
+    text = _CLIENT_BLOCK.sub(" ", prompt).strip()
+    return "" if text.startswith(_PEER_MESSAGE) else text
 
 
 def one_line(text: str, limit: int = _LINE_CHARS) -> str:

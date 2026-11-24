@@ -55,21 +55,27 @@ You are operating in a git worktree. The brief was written for Masha.
 </system-reminder>
 """
 
+# A reminder can come before another session's or a subagent's message, as before the person's words (review of #5:
+# the peer check looked at the reminder's tag, not at the message, and the whole report became the query).
+NOT_THE_PERSONS = [NOTIFICATION, SUBAGENT, PEER, CI, SIDE, REMINDER, REMINDER + "\n" + NOTIFICATION,
+                   REMINDER + SUBAGENT, REMINDER + PEER]
+NOT_THE_PERSONS_IDS = ["notification", "subagent", "peer", "ci", "side-sessions", "reminder", "two-blocks",
+                       "reminder-then-subagent", "reminder-then-peer"]
+
 
 @pytest.fixture
 def home(tmp_path):
     return tmp_path / "holo"
 
 
-@pytest.mark.parametrize("text", [NOTIFICATION, SUBAGENT, PEER, CI, SIDE, REMINDER, REMINDER + "\n" + NOTIFICATION],
-                         ids=["notification", "subagent", "peer", "ci", "side-sessions", "reminder", "two-blocks"])
+@pytest.mark.parametrize("text", NOT_THE_PERSONS, ids=NOT_THE_PERSONS_IDS)
 def test_a_message_the_person_did_not_write_recalls_nothing(home, text):
     seed(home, [FACT])
     proc = hook(home, "user-prompt", prompt(text))
     assert proc.returncode == 0 and proc.stdout == b""
 
 
-@pytest.mark.parametrize("text", [NOTIFICATION, SUBAGENT, CI])
+@pytest.mark.parametrize("text", [NOTIFICATION, SUBAGENT, CI, REMINDER + SUBAGENT])
 def test_a_service_message_does_not_even_open_the_store(home, text):
     """As an acknowledgement: nothing to recall, so the engine is not loaded and no file is made."""
     proc = hook(home, "user-prompt", prompt(text))
@@ -125,8 +131,7 @@ def _served_recall(client, text: str) -> str:
     return _recall(client, text)
 
 
-@pytest.mark.parametrize("text", [NOTIFICATION, SUBAGENT, PEER, CI, SIDE, REMINDER, REMINDER + "\n" + NOTIFICATION],
-                         ids=["notification", "subagent", "peer", "ci", "side-sessions", "reminder", "two-blocks"])
+@pytest.mark.parametrize("text", NOT_THE_PERSONS, ids=NOT_THE_PERSONS_IDS)
 def test_memory_recall_of_a_message_the_person_did_not_write_is_empty(served, text):
     assert _served_recall(served, text) == ""
 
