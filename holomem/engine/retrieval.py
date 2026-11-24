@@ -567,7 +567,7 @@ class FactRetriever:
             terms = query_terms(name)
             if not terms or any(t.found_in(analysis) for t in terms):
                 continue
-            # «Ева» and «Еву» share only «ев», a stem under _MIN_STEM that plain text keeps out of a word's keys, so the
+            # «Ася» and «Асю» share only «ас», a stem under _MIN_STEM that plain text keeps out of a word's keys, so the
             # fact read as being about someone else (2026-10-30); «Лев» and «Льва» share no stem at all. A name also
             # meets a word of the fact written with a capital that may be a case form of the same first form
             # (text.name_lemmas), and never a lower-case word: «Мая» is no «в мае». A shared short stem alone was
@@ -915,7 +915,7 @@ class FactRetriever:
                     gram_kept.append(f)
         terms = [t for t in query_terms(_RE_UNSEGMENTED.sub(" ", query or "")) if t.word]
         identifiers = [t for t in terms if t.identifier]
-        if identifiers:  # "hr-vps" inside Chinese text: the character overlap must not stand in for the host
+        if identifiers:  # "qx-vps" inside Chinese text: the character overlap must not stand in for the host
             gram_kept = [f for f in gram_kept
                          if any(t.found_in(analyze(_fact_text(f))) for t in identifiers)]
         if not terms or not candidates:

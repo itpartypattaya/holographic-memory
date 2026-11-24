@@ -63,7 +63,7 @@ def test_elision_inversion_and_hyphens():
     assert words("Comment Oscar prend-il son café ?") == ["comment", "oscar", "prend", "son", "cafe"]
     assert words("Quand Irma a-t-elle natation") == ["quand", "irma", "a", "natation"]
     assert words("anak-anak bermain") == ["anak", "bermain"]
-    assert words("hr-vps-এর ব্যাকআপ") == ["hr-vps", "এর", "ব্যাকআপ"]
+    assert words("qx-vps-এর ব্যাকআপ") == ["qx-vps", "এর", "ব্যাকআপ"]
     assert words("IT-тусовка в пятницу") == ["it", "тусовка", "в", "пятницу"]
     assert "sextas" in analyze("nas sextas-feiras").bag
     assert is_identifier("pve-01") and is_identifier("v0.21.6") and not is_identifier("кто-то")
@@ -108,8 +108,8 @@ def test_hindi_in_a_store_where_letters_are_everywhere(store):
         store.add_fact(f"पटाया में शुक्रवार की पार्टी नंबर {i} रात को होती है")
     target = store.add_fact("परिवार की बिल्ली ब्रिटिश शॉर्टहेयर नस्ल की है")
     assert _r(store).search("बिल्ली किस नस्ल की है?", min_trust=0, limit=3)[0]["fact_id"] == target
-    coffee = store.add_fact("एंटोन ब्लैक कॉफ़ी पीते हैं")
-    assert _r(store).search("एंटोन कॉफी", min_trust=0, limit=1)[0]["fact_id"] == coffee  # written without the nukta
+    coffee = store.add_fact("लियोन ब्लैक कॉफ़ी पीते हैं")
+    assert _r(store).search("लियोन कॉफी", min_trust=0, limit=1)[0]["fact_id"] == coffee  # written without the nukta
 
 
 def test_bengali_case_endings_and_digits(store):

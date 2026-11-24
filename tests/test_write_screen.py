@@ -118,7 +118,7 @@ def test_auto_extract_keeps_a_preference_beside_a_reply(memory):
 
 
 def test_auto_extract_does_not_take_a_pasted_prompt_apart(memory):
-    text = ("You are Mia, the family assistant. You received a new message from the school.\n"
+    text = ("You are Robin, the family assistant. You received a new message from the school.\n"
             "I prefer short answers in Russian. I always use tabs in Python.")
     assert extracted(memory, text) == []
 

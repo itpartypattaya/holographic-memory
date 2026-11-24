@@ -495,7 +495,7 @@ def _people_store(home: Path) -> Path:
     p = _Session(db, "t1", chat_id="201", user_id="201", user_name="Алёна")
     try:
         p.add("Варя — наша дочь, ей восемь.", "said", ["Варя"])               # the name opens the sentence
-        p.add("Подарок для подруги Ксюши купили заранее.", "said", ["Ксюша"])  # a case form beside a case form
+        p.add("Подарок для подруги Наташи купили заранее.", "said", ["Наташа"])  # a case form beside a case form
         p.add("Varya is my daughter, she is eight.", "said", ["Varya"])
         p.add("Riverside is my daughter's school.", "said", ["Riverside"])     # a possessive names no one
         p.add("Алёна попросила купить сыр.", "said", ["Алёна"])               # the author of the chat
@@ -515,7 +515,7 @@ def test_people_are_told_from_topics_only_by_what_the_store_holds(tmp_path):
     snap = export_map(_people_store(tmp_path / "data"), now=NOW)
     kinds = {e["name"]: (e["type"], e["type_by"]) for e in snap["ENT"]}
     assert kinds["Варя"] == ("person", "relative_or_role")
-    assert kinds["Ксюша"] == ("person", "relative_or_role"), "«подруги Ксюши» is a case form of «Ксюша»"
+    assert kinds["Наташа"] == ("person", "relative_or_role"), "«подруги Наташи» is a case form of «Наташа»"
     assert kinds["Varya"] == ("person", "relative_or_role")
     assert kinds["Алёна"] == ("person", "speaker")
     for name in ("Сентябрь", "Октябрь", "Барсик", "Apple", "Сосновка", "Riverside"):

@@ -86,6 +86,6 @@ def test_an_english_question_recalls_the_chinese_fact(tmp_path):
     from test_hooks import seed
 
     home = tmp_path / "holo"
-    seed(home, [(WATCHDOG, []), ("The production server hr-vps runs Debian 12", [])])
+    seed(home, [(WATCHDOG, []), ("The production server qx-vps runs Debian 12", [])])
     block = context(hook(home, "user-prompt", prompt("How does the watchdog compare ppid?")))
     assert "watchdog单层ppid" in block and "Debian" not in block, block
