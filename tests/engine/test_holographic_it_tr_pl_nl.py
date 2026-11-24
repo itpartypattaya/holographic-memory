@@ -94,7 +94,7 @@ def test_turkish_words_typed_with_or_without_their_letters_meet(store):
 
 
 def test_turkish_apostrophe_takes_the_ending_off_a_name():
-    assert words("Ankara'da Ayşe'nin QX24'ün hr-vps'de 03:00'te") == ["ankara", "ayse", "qx24", "hr-vps", "03:00"]
+    assert words("Ankara'da Ayşe'nin QX24'ün qx-vps'de 03:00'te") == ["ankara", "ayse", "qx24", "qx-vps", "03:00"]
     assert "ankara'da" in analyze("Ankara'da yaşıyor").bag  # the whole stays for containment
     # not in English text, nor for an ending Turkish does not have
     assert words("Irma's dentist at 9 o'clock") == ["irma's", "dentist", "at", "9", "o'clock"]
